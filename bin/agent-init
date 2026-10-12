@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""agent-init: standardize AGENTS.md / CLAUDE.md across projects.
+
+Deterministic part (idempotent): managed rules block, CLAUDE.md import, .gitignore,
+no-coauthor setting for Claude Code, ai-memory routing block.
+Generative part (optional): claude or codex fills the project-specific sections.
+"""
+import argparse
+import json
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+KIT = Path(__file__).resolve().parent.parent
+END = "<!-- agent-kit:end -->"
+START_RE = re.compile(r"<!-- agent-kit:start(?: lang=(\w+) git-lang=(\w+))? -->")
+LANGS = {"pt": "português do Brasil", "en": "English"}
+
+CLAUDE_MD = """@AGENTS.md
+
+## Claude Code notes
+
+- `AGENTS.md` is canonical; edit rules there, not here. The ai-memory routing block lives
+  in `AGENTS.md` and is loaded through the import above (do not add a second copy here).
+"""
+
+
+def log(msg):
+    print(f"[agent-init] {msg}")
+
+
+def render_block(lang, git_lang):
+    body = (KIT / "rules" / f"{lang}.md").read_text()
+    body = body.replace("{{LANG_NAME}}", LANGS[lang]).replace("{{GIT_LANG_NAME}}", LANGS[git_lang])
+    return f"<!-- agent-kit:start lang={lang} git-lang={git_lang} -->\n{body.rstrip()}\n{END}\n"
+
+
+def saved_langs(repo):
+    f = repo / "AGENTS.md"
+    m = START_RE.search(f.read_text()) if f.exists() else None
+    return (m.group(1), m.group(2)) if m and m.group(1) else (None, None)
+
+
+def upsert_block(path, block):
+    if not path.exists():
+        path.write_text(f"# AGENTS.md\n\n{block}")
+        return "created"
+    text = path.read_text()
+    pattern = re.compile(START_RE.pattern + r".*?" + re.escape(END) + r"\n?", re.S)
+    if pattern.search(text):
+        new = pattern.sub(lambda _: block, text, count=1)
+    else:
+        # keep the existing title on top, insert the block right after it
+        m = re.match(r"(#[^\n]*\n+)", text)
+        head, rest = (m.group(1), text[m.end():]) if m else ("", text)
+        new = f"{head}{block}\n{rest}"
+    if new == text:
+        return "unchanged"
+    path.write_text(new)
+    return "updated"
+
+
+def ensure_ignored(repo, entry, tracked):
+    """Default to .git/info/exclude so upstream clones get no diff; --tracked edits .gitignore."""
+    if tracked:
+        gi = repo / ".gitignore"
+    else:
+        common = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=repo, capture_output=True, text=True).stdout.strip()
+        gi = (repo / common / "info" / "exclude").resolve()
+        gi.parent.mkdir(exist_ok=True)
+    lines = gi.read_text().splitlines() if gi.exists() else []
+    if entry in lines or entry.rstrip("/") in lines:
+        return
+    gi.write_text("\n".join(lines + [entry]) + "\n")
+    log(f"{gi.name}: added {entry}")
+
+
+def ensure_claude_md(repo):
+    cm = repo / "CLAUDE.md"
+    if not cm.exists():
+        cm.write_text(CLAUDE_MD)
+        log("CLAUDE.md: created (imports AGENTS.md)")
+    elif "@AGENTS.md" not in cm.read_text():
+        log("WARNING: CLAUDE.md exists without `@AGENTS.md`; left untouched, merge it by hand")
+
+
+def ensure_no_coauthor(repo):
+    # The Claude Code harness injects its own Co-Authored-By instruction; this setting is what turns it off.
+    f = repo / ".claude" / "settings.local.json"
+    data = json.loads(f.read_text()) if f.exists() else {}
+    attribution = data.setdefault("attribution", {})
+    if attribution.get("commit") == "" and attribution.get("pr") == "":
+        return
+    attribution.update(commit="", pr="")
+    ensure_ignored(repo, ".claude/settings.local.json", False)
+    f.parent.mkdir(exist_ok=True)
+    f.write_text(json.dumps(data, indent=2) + "\n")
+    log(".claude/settings.local.json: attribution disabled")
+
+
+def install_ai_memory(repo, full, skills):
+    if not shutil.which("ai-memory"):
+        log("WARNING: ai-memory not found in PATH; routing block skipped")
+        return
+    cmd = ["ai-memory", "install-instructions", "--target", "AGENTS.md"]
+    if not full:
+        cmd.append("--compact")
+    if not skills:
+        cmd.append("--no-skills")
+    r = subprocess.run(cmd, cwd=repo, capture_output=True, text=True)
+    log("ai-memory: routing block " + ("installed" if r.returncode == 0 else f"FAILED\n{r.stderr.strip()}"))
+
+
+def fill_with_agent(repo, agent, lang, migrate):
+    prompt = (KIT / "prompts" / "fill.md").read_text().replace("{{LANG_NAME}}", LANGS[lang])
+    if migrate:
+        prompt += (KIT / "prompts" / "migrate.md").read_text()
+    if agent == "claude":
+        cmd = ["claude", "-p", prompt, "--permission-mode", "acceptEdits",
+               "--allowedTools", "Read", "Glob", "Grep", "Edit", "Write",
+               "Bash(git log:*)", "Bash(git ls-files:*)", "Bash(ls:*)"]
+    else:
+        cmd = ["codex", "exec", "--sandbox", "workspace-write", prompt]
+    exe = shutil.which(cmd[0])
+    if not exe:
+        sys.exit(f"{cmd[0]} not found in PATH")
+    # asdf shims resolve the version from the cwd's .tool-versions, which the target repo may pin differently
+    if "/.asdf/shims/" in exe:
+        real = subprocess.run(["asdf", "which", cmd[0]], cwd=Path.home(), capture_output=True, text=True).stdout.strip()
+        exe = real or exe
+    cmd[0] = exe
+    log(f"{agent}: analyzing the repo to fill project sections (this can take a minute)...")
+    if subprocess.run(cmd, cwd=repo, stdin=subprocess.DEVNULL).returncode != 0:
+        log(f"WARNING: {agent} exited with an error; review AGENTS.md")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("repo", nargs="?", default=".", help="target repository (default: current dir)")
+    ap.add_argument("--lang", choices=LANGS, help="conversation and docs language (default: saved value, else pt)")
+    ap.add_argument("--git-lang", choices=LANGS, help="language of commits/issues/PRs (default: same as --lang)")
+    ap.add_argument("--agent", choices=["claude", "codex", "none"], default="claude",
+                    help="who fills the project-specific sections (default: claude)")
+    ap.add_argument("--full-memory", action="store_true", help="inline the full ai-memory guidance instead of --compact")
+    ap.add_argument("--tracked", action="store_true", help="put .worktrees/ in the tracked .gitignore (your own repos) instead of .git/info/exclude")
+    ap.add_argument("--hide-agent-files", action="store_true", help="also exclude AGENTS.md/CLAUDE.md locally (upstream forks)")
+    ap.add_argument("--migrate-claude", action="store_true", help="move an existing CLAUDE.md into AGENTS.md (via the agent) and replace it with the import stub")
+    ap.add_argument("--no-skills", action="store_true", help="do not install ai-memory skills into the project")
+    ap.add_argument("--dry-run", action="store_true", help="print the managed block and exit")
+    args = ap.parse_args()
+
+    repo = Path(args.repo).expanduser().resolve()
+    if not args.dry_run and not (repo / ".git").exists():
+        sys.exit(f"{repo} is not a git repository root")
+    old_lang, old_git = saved_langs(repo)
+    lang = args.lang or old_lang or "pt"
+    git_lang = args.git_lang or (old_git if not args.lang else None) or lang
+    block = render_block(lang, git_lang)
+    if args.dry_run:
+        print(block)
+        return
+    args.lang = lang
+
+    log(f"AGENTS.md: {upsert_block(repo / 'AGENTS.md', block)}")
+    if not args.migrate_claude:
+        ensure_claude_md(repo)
+    ensure_ignored(repo, ".worktrees/", args.tracked)
+    if args.hide_agent_files:
+        for name in ("AGENTS.md", "CLAUDE.md"):
+            ensure_ignored(repo, name, False)
+    ensure_no_coauthor(repo)
+    install_ai_memory(repo, args.full_memory, not args.no_skills)
+    if args.agent != "none":
+        fill_with_agent(repo, args.agent, args.lang, args.migrate_claude)
+    if args.migrate_claude:
+        (repo / "CLAUDE.md").write_text(CLAUDE_MD)
+        log("CLAUDE.md: replaced with the import stub")
+    log("done. Review with `git diff` / `git status`; nothing was committed.")
+
+
+if __name__ == "__main__":
+    main()
