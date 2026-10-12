@@ -5,9 +5,11 @@ Personal CLI to standardize `AGENTS.md` / `CLAUDE.md` across projects.
 ## Install
 
 ```bash
-make install   # symlinks bin/agent-init into ~/.local/bin (PREFIX=... to change)
+make install   # symlinks agent-kit and agent-init into ~/.local/bin (PREFIX=... to change)
 make test      # stdlib unittest, no dependencies
 ```
+
+`agent-init` is an alias for `agent-kit init`; every example below works with either.
 
 ## Usage
 
@@ -41,9 +43,40 @@ It never commits.
 `--migrate-claude` needs an agent (it refuses `--agent none`), and `CLAUDE.md` is only replaced
 by the stub if the agent exits cleanly.
 
+## Your rules
+
+The bundled `rules/` are defaults. Your own rules live outside the checkout, so `git pull`
+never conflicts with them:
+
+- the user rules dir is `$AGENT_KIT_RULES` if set, else `~/.config/agent-kit/rules`
+  (`$XDG_CONFIG_HOME` is respected);
+- `<lang>.md` is read from there, and a language missing there falls back to the bundled
+  `rules/<lang>.md`.
+
+```bash
+agent-kit rules          # show which file each language is read from
+agent-kit rules --init   # copy the bundled rules there to start editing (never overwrites)
+```
+
+Both files have `{{LANG_NAME}}` / `{{GIT_LANG_NAME}}` placeholders, and they should say
+the same thing in each language.
+
+### Adding a rule with a local agent
+
+```bash
+agent-kit add-rule "never git push without asking" --dry-run   # show the diff only
+agent-kit add-rule "never git push without asking"              # write it
+agent-kit add-rule "..." --agent codex
+```
+
+The local `claude` (or `codex`) CLI gets the current rules and returns every language file
+with the rule placed in the right section, translated, and merged with any rule it overlaps.
+It runs with no tools in an empty directory. agent-kit checks the answer (every language present,
+placeholders and first heading kept) before writing to your rules dir, and prints the diff.
+
 ## Changing a rule for every project
 
-Edit `rules/*.md`, then:
+Edit your rules (or use `add-rule`), then:
 
 ```bash
 agent-init ~/repos --all --check   # see which repos are outdated

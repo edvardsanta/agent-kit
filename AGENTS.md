@@ -4,7 +4,8 @@
 ## Default rules (agent-kit)
 
 This block is managed by agent-kit and replaced on every run. Do not edit between
-the markers; change the rule in `agent-kit/rules/` and run `agent-init` again.
+the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and run
+`agent-kit init` again.
 
 ### Language
 
@@ -40,25 +41,30 @@ the markers; change the rule in `agent-kit/rules/` and run `agent-init` again.
 
 ## Overview
 
-`agent-kit` is a personal CLI (`agent-init`) that standardizes `AGENTS.md` / `CLAUDE.md`
-across repositories. It has a deterministic part (managed rules block, `CLAUDE.md` import stub,
-`.worktrees/` ignore entry, Claude Code attribution off, ai-memory routing) and an optional
-generative part where `claude -p` or `codex exec` fills the project sections.
+`agent-kit` is a personal CLI that standardizes `AGENTS.md` / `CLAUDE.md` across repositories.
+Subcommands: `init` (also installed as `agent-init`), `rules`, `add-rule`. `init` has a
+deterministic part (managed rules block, `CLAUDE.md` import stub, `.worktrees/` ignore entry,
+Claude Code attribution off, ai-memory routing) and an optional generative part where
+`claude -p` or `codex exec` fills the project sections.
 
 ## Repository layout
 
-- `bin/agent-init`: the whole CLI, a single stdlib-only Python 3 script (no `.py` extension).
-- `rules/en.md`, `rules/pt.md`: body of the managed agent-kit block, one file per language.
-- `prompts/fill.md`: prompt the agent gets to fill project sections; `prompts/migrate.md` is appended for `--migrate-claude`.
-- `tests/test_agent_init.py`: unittest suite; loads `bin/agent-init` through `SourceFileLoader`.
+- `bin/agent-kit`: the whole CLI, a single stdlib-only Python 3 script (no `.py` extension).
+- `bin/agent-init`: symlink to `agent-kit`; `main()` prepends `init` when invoked under that name.
+- `rules/en.md`, `rules/pt.md`: bundled default body of the managed block, one file per language.
+- `prompts/fill.md`: prompt for filling project sections; `prompts/migrate.md` is appended for
+  `--migrate-claude`; `prompts/add-rule.md` is used by `add-rule`.
+- `tests/test_agent_init.py`: unittest suite; loads `bin/agent-kit` through `SourceFileLoader`.
 
 ## Environment and commands
 
 - No dependencies: Python 3 stdlib plus `git`. No CI, linter or formatter config in the repo.
 - `make test`: runs `python3 -m unittest discover -s tests`.
 - Single test (fast): `python3 -m unittest discover -s tests -k <test_name>`.
-- `make install`: symlinks `bin/agent-init` into `$(PREFIX)/bin` (default `~/.local`).
-- Run without touching anything: `bin/agent-init <repo> --dry-run` (diff) or `--check` (exit 1 if outdated).
+- `make install`: symlinks `bin/agent-kit` as both `agent-kit` and `agent-init` into
+  `$(PREFIX)/bin` (default `~/.local`).
+- Run without touching anything: `bin/agent-kit init <repo> --dry-run` (diff) or `--check`
+  (exit 1 if outdated); `bin/agent-kit add-rule "..." --dry-run`.
 
 ## Conventions
 
@@ -66,12 +72,18 @@ generative part where `claude -p` or `codex exec` fills the project sections.
   serves normal runs, `--dry-run` and `--check`. Do not write files directly in `ensure_*` helpers.
 - `plan()` composes the deterministic steps (`ensure_agents_md`, `ensure_claude_md`,
   `ensure_ignored`, `ensure_no_coauthor`); keep each step idempotent.
-- User-facing failures raise `InitError` (printed as `agent-init: error: ...`, exit 2); progress
-  goes through `log()` with the `[agent-init]` prefix.
+- User-facing failures raise `InitError` (printed as `agent-kit: error: ...`, exit 2); progress
+  goes through `log()` with the `[agent-kit]` prefix.
+- Each subcommand is a `run_<name>(args)` wired in `build_parser()` via `set_defaults(func=...)`.
+- Rules are resolved by `rules_file()`: `<lang>.md` in `user_rules_dir()` (`$AGENT_KIT_RULES`
+  if set, else `$XDG_CONFIG_HOME` or `~/.config` + `/agent-kit/rules`), else bundled `rules/<lang>.md`.
+- `add-rule` validates the agent's answer in `parse_rules_answer` (every language present,
+  placeholders and first heading kept) before writing anything.
 - The managed block's start marker stores `lang=` and `git-lang=`; they are read back on
   rerun (`START_RE`, `saved_langs`). Never write a literal marker elsewhere in `AGENTS.md`.
 - Templates use `{{LANG_NAME}}` / `{{GIT_LANG_NAME}}` placeholders, replaced from `LANGS`.
 - `rules/en.md` and `rules/pt.md` must stay in sync: change both when editing a rule.
+- Tests point `AGENT_KIT_RULES` at a temp dir so the user's real rules dir is never read.
 - `--all` only re-applies the deterministic part and rejects per-repo flags; keep new flags
   in that rejection list when they are per-repo.
 - Tests that call the CLI run with a `PATH` containing only `git`, so `ai-memory`, `claude`
@@ -85,8 +97,9 @@ generative part where `claude -p` or `codex exec` fills the project sections.
 ## Pitfalls
 
 - The tool never commits; it only writes files. Keep it that way.
-- `fill_with_agent` resolves asdf shims from `$HOME` because the target repo's
+- `resolve_exe` resolves asdf shims from `$HOME` because the target repo's
   `.tool-versions` may pin a different version.
+- Personal rules live outside the checkout; `agent-kit rules --init` seeds them and never overwrites.
 - `--migrate-claude` replaces `CLAUDE.md` with the stub only if the agent exits cleanly.
 
 <!-- ai-memory:start -->
