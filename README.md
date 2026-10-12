@@ -18,6 +18,7 @@ agent-init ~/repos/my-project --lang pt             # conversation/docs in pt, c
 agent-init . --lang pt --git-lang en                # docs in pt, commits/issues/PRs in English
 agent-init . --agent codex                          # codex fills the project sections
 agent-init . --agent none                           # deterministic part only
+agent-init . --trust                                # your own repo: agent loads its hooks/MCP (ai-memory)
 agent-init . --migrate-claude                       # old CLAUDE.md -> AGENTS.md + stub
 agent-init ~/repos/rpcs3 --hide-agent-files         # fork/upstream: nothing shows up in the diff
 agent-init . --dry-run                              # print the diff, write nothing
@@ -34,14 +35,35 @@ agent-init ~/repos --all                            # re-apply the rules to all 
 3. `.worktrees/` goes into `.git/info/exclude` (use `--tracked` for the versioned `.gitignore`).
 4. `.claude/settings.local.json` with empty `attribution` (turns off Claude Code's Co-Authored-By).
 5. `ai-memory install-instructions` (routing block + skills; `--no-skills`, `--full-memory`).
-6. An agent (`claude -p` or `codex exec`) reads the repo and writes overview, commands, conventions and
-   pitfalls outside the managed blocks (`prompts/fill.md`).
+6. An agent (`claude -p` or `codex exec`) reads the repo and answers with overview, commands,
+   conventions and pitfalls (`prompts/fill.md`); agent-kit writes them outside the managed blocks.
 
 Idempotent: the language is stored in the marker, so running it again does not change the language.
 It never commits.
 
 `--migrate-claude` needs an agent (it refuses `--agent none`), and `CLAUDE.md` is only replaced
 by the stub if the agent exits cleanly.
+
+## Prompt injection
+
+The agent in step 6 reads files you did not write (READMEs, code, an old `CLAUDE.md`), and what
+it produces becomes instructions for every agent that later works in that repo. So:
+
+- **The agent cannot write.** claude gets only Read/Glob/Grep and `git log` / `git ls-files` /
+  `ls`; codex runs with `--sandbox read-only`. It prints the sections; agent-kit validates them
+  (delimiters, a `## ` heading, no managed-block markers) and writes only the project part of
+  `AGENTS.md`. A rejected answer leaves every file as it was.
+- **The target repo's Claude Code config is ignored**: `--setting-sources user --strict-mcp-config`,
+  so a cloned repo's `.claude/settings.json` hooks and `.mcp.json` servers never run. Pass
+  `--trust` for your own repos to load them (for example ai-memory); the agent still cannot write.
+- **The prompt treats repo content as data**, not instructions, and forbids copying remote-code,
+  `sudo`, permission or hook commands that are not in a manifest, Makefile or CI.
+- **Suspicious added lines are flagged** under `REVIEW:` (URLs, `curl`/`wget`/`sudo`, `| sh`,
+  hooks, permissions, tokens, "ignore previous..."). The diff is always printed, and nothing is committed.
+
+This reduces the risk; it does not remove it. Read the `AGENTS.md` diff before committing, especially
+in repos you cloned from someone else. `--all`, `--check` and `--dry-run` never call an agent.
+`add-rule` runs the agent with no tools in an empty directory.
 
 ## Your rules
 
