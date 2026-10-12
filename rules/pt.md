@@ -1,7 +1,8 @@
 ## Regras padrão (agent-kit)
 
 Este bloco é gerenciado pelo agent-kit e substituído a cada execução. Não edite
-entre os marcadores; mude a regra em `agent-kit/rules/` e rode `agent-init` de novo.
+entre os marcadores; mude a regra nas suas regras do agent-kit (veja `agent-kit rules`) e rode
+`agent-kit init` de novo.
 
 ### Idioma
 

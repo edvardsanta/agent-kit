@@ -11,8 +11,9 @@ from pathlib import Path
 
 KIT = Path(__file__).resolve().parent.parent
 SCRIPT = KIT / "bin" / "agent-init"
+KIT_SCRIPT = KIT / "bin" / "agent-kit"
 
-_loader = SourceFileLoader("agent_init", str(SCRIPT))
+_loader = SourceFileLoader("agent_init", str(KIT_SCRIPT))
 ai = module_from_spec(spec_from_loader("agent_init", _loader))
 _loader.exec_module(ai)
 
@@ -24,8 +25,16 @@ class TempDir(unittest.TestCase):
         self.bin = self.tmp / "bin"
         self.bin.mkdir()
         (self.bin / "git").symlink_to(shutil.which("git"))
+        # never read the user's real rules dir
+        self.rules = self.tmp / "user-rules"
+        self._old_rules = os.environ.get("AGENT_KIT_RULES")
+        os.environ["AGENT_KIT_RULES"] = str(self.rules)
 
     def tearDown(self):
+        if self._old_rules is None:
+            os.environ.pop("AGENT_KIT_RULES", None)
+        else:
+            os.environ["AGENT_KIT_RULES"] = self._old_rules
         shutil.rmtree(self.tmp)
 
     def git_repo(self, name="repo"):
@@ -34,13 +43,27 @@ class TempDir(unittest.TestCase):
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
         return repo
 
-    def run_cli(self, *args):
-        env = {**os.environ, "PATH": str(self.bin)}
-        return subprocess.run([sys.executable, str(SCRIPT), *map(str, args)],
+    def run_cli(self, *args, script=SCRIPT, env=None):
+        env = {**os.environ, "PATH": str(self.bin), **(env or {})}
+        return subprocess.run([sys.executable, str(script), *map(str, args)],
                               capture_output=True, text=True, env=env)
+
+    def run_kit(self, *args, **kw):
+        return self.run_cli(*args, script=KIT_SCRIPT, **kw)
 
 
 class UpsertBlockTest(unittest.TestCase):
+    # bundled rules only; RulesTest covers the user rules dir
+    def setUp(self):
+        self._old = os.environ.get("AGENT_KIT_RULES")
+        os.environ["AGENT_KIT_RULES"] = "/nonexistent/agent-kit-rules"
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("AGENT_KIT_RULES", None)
+        else:
+            os.environ["AGENT_KIT_RULES"] = self._old
+
     block = ai.render_block("en", "en")
 
     def test_creates_file_with_title(self):
@@ -174,6 +197,34 @@ class CliTest(TempDir):
 
     def test_all_rejects_per_repo_flags(self):
         self.assertEqual(self.run_cli(self.tmp, "--all", "--lang", "en").returncode, 2)
+
+
+class RulesTest(TempDir):
+    def test_user_rules_override_bundled(self):
+        repo = self.git_repo()
+        self.assertEqual(ai.rules_file("en"), KIT / "rules" / "en.md")
+        r = self.run_kit("rules", "--init")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("en: " + str(self.rules / "en.md") + " (user)", r.stdout)
+        (self.rules / "en.md").write_text((self.rules / "en.md").read_text() + "- Custom rule.\n")
+        self.assertEqual(self.run_kit("init", repo, "--lang", "en", "--agent", "none").returncode, 0)
+        self.assertIn("- Custom rule.", (repo / "AGENTS.md").read_text())
+        # pt still comes from the copy, which matches the bundled file
+        self.assertEqual((self.rules / "pt.md").read_text(), (KIT / "rules" / "pt.md").read_text())
+
+    def test_rules_init_never_overwrites(self):
+        self.rules.mkdir()
+        (self.rules / "en.md").write_text("mine\n")
+        self.run_kit("rules", "--init")
+        self.assertEqual((self.rules / "en.md").read_text(), "mine\n")
+        self.assertTrue((self.rules / "pt.md").exists())
+
+    def test_xdg_config_home_is_the_default(self):
+        env = {k: v for k, v in os.environ.items() if k != "AGENT_KIT_RULES"}
+        env["XDG_CONFIG_HOME"] = str(self.tmp / "xdg")
+        r = subprocess.run([sys.executable, str(KIT_SCRIPT), "rules"], capture_output=True, text=True,
+                           env={**env, "PATH": str(self.bin)})
+        self.assertIn(str(self.tmp / "xdg" / "agent-kit" / "rules"), r.stdout)
 
 
 if __name__ == "__main__":

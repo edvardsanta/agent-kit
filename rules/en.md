@@ -1,7 +1,8 @@
 ## Default rules (agent-kit)
 
 This block is managed by agent-kit and replaced on every run. Do not edit between
-the markers; change the rule in `agent-kit/rules/` and run `agent-init` again.
+the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and run
+`agent-kit init` again.
 
 ### Language
 
