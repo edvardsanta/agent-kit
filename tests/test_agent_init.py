@@ -227,5 +227,56 @@ class RulesTest(TempDir):
         self.assertIn(str(self.tmp / "xdg" / "agent-kit" / "rules"), r.stdout)
 
 
+class AddRuleTest(TempDir):
+    rule = "- Never push without asking."
+
+    def fake_claude(self, answer):
+        """A `claude` on PATH that saves its prompt and prints `answer`."""
+        (self.tmp / "answer.txt").write_text(answer)
+        stub = self.bin / "claude"
+        stub.write_text(f'#!/bin/sh\nprintf "%s" "$2" > {self.tmp}/prompt.txt\nexec /bin/cat {self.tmp}/answer.txt\n')
+        stub.chmod(0o755)
+
+    def answer(self, drop_placeholder=False):
+        out = ""
+        for lang in ai.LANGS:
+            text = (KIT / "rules" / f"{lang}.md").read_text().rstrip() + f"\n{self.rule}\n"
+            if drop_placeholder:
+                text = text.replace("{{GIT_LANG_NAME}}", "English")
+            out += f"=== {lang}.md ===\n{text}\n"
+        return "```\n" + out + "=== end ===\n```\n"
+
+    def test_writes_user_rules_and_init_uses_them(self):
+        self.fake_claude(self.answer())
+        r = self.run_kit("add-rule", "never push without asking")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("+- Never push without asking.", r.stdout)
+        prompt = (self.tmp / "prompt.txt").read_text()
+        self.assertIn("never push without asking", prompt)
+        self.assertIn("=== pt.md ===", prompt)
+        for lang in ai.LANGS:
+            text = (self.rules / f"{lang}.md").read_text()
+            self.assertTrue(text.endswith(self.rule + "\n"))
+            self.assertNotIn("```", text)
+        repo = self.git_repo()
+        self.run_kit("init", repo, "--agent", "none")
+        self.assertIn(self.rule, (repo / "AGENTS.md").read_text())
+
+    def test_dry_run_writes_nothing(self):
+        self.fake_claude(self.answer())
+        r = self.run_kit("add-rule", "x", "--dry-run")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("+- Never push without asking.", r.stdout)
+        self.assertFalse(self.rules.exists())
+
+    def test_broken_answer_writes_nothing(self):
+        for answer in (self.answer(drop_placeholder=True), "=== en.md ===\n## Default rules (agent-kit)\n=== end ===\n"):
+            self.fake_claude(answer)
+            r = self.run_kit("add-rule", "x")
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("nothing written", r.stderr)
+            self.assertFalse(self.rules.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

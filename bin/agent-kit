@@ -8,6 +8,7 @@ no-coauthor setting for Claude Code, ai-memory routing block.
 Generative part (optional): claude or codex fills the project-specific sections.
 
 `agent-kit rules`: show (or seed with --init) the rules used for the managed block.
+`agent-kit add-rule "..."`: a local agent (claude or codex) writes the rule into your rules files.
 """
 import argparse
 import difflib
@@ -17,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parent.parent
@@ -39,7 +41,7 @@ class InitError(Exception):
 
 
 def log(msg):
-    print(f"[agent-init] {msg}")
+    print(f"[agent-kit] {msg}")
 
 
 class Changes:
@@ -211,6 +213,76 @@ def install_ai_memory(repo, full, skills):
     log("ai-memory: routing block " + ("installed" if r.returncode == 0 else f"FAILED\n{r.stderr.strip()}"))
 
 
+def resolve_exe(name):
+    exe = shutil.which(name)
+    if not exe:
+        raise InitError(f"{name} not found in PATH")
+    # asdf shims resolve the version from the cwd's .tool-versions, which the target repo may pin differently
+    if "/.asdf/shims/" in exe:
+        real = subprocess.run(["asdf", "which", name], cwd=Path.home(), capture_output=True, text=True).stdout.strip()
+        exe = real or exe
+    return exe
+
+
+def ask_agent(agent, prompt):
+    """Run the agent without tools in an empty dir (no project instructions) and return its answer."""
+    with tempfile.TemporaryDirectory(prefix="agent-kit-") as tmp:
+        out = Path(tmp) / "answer.md"
+        if agent == "claude":
+            cmd = [resolve_exe("claude"), "-p", prompt, "--output-format", "text", "--tools", ""]
+        else:
+            cmd = [resolve_exe("codex"), "exec", "--skip-git-repo-check", "--sandbox", "read-only",
+                   "-o", str(out), prompt]
+        r = subprocess.run(cmd, cwd=tmp, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+        if r.returncode != 0:
+            raise InitError(f"{agent} exited with {r.returncode}: {r.stderr.strip()[-500:]}")
+        return out.read_text() if agent == "codex" else r.stdout
+
+
+def parse_rules_answer(answer, current):
+    """Split the agent's answer into {lang: text} and check it kept the template intact."""
+    answer = answer.split("=== end ===")[0]
+    parts = re.split(r"^=== (\w+)\.md ===[ \t]*$", answer, flags=re.M)
+    # tolerate a code fence around the whole answer
+    found = {parts[i]: re.sub(r"\n```\s*$", "", parts[i + 1].strip("\n")) + "\n"
+             for i in range(1, len(parts) - 1, 2)}
+    missing = [lang for lang in current if lang not in found]
+    if missing:
+        raise InitError(f"agent answer has no section for {', '.join(missing)}.md; nothing written")
+    for lang, old in current.items():
+        new = found[lang]
+        for ph in ("{{LANG_NAME}}", "{{GIT_LANG_NAME}}"):
+            if ph in old and ph not in new:
+                raise InitError(f"agent dropped {ph} from {lang}.md; nothing written")
+        if new.splitlines()[0] != old.splitlines()[0]:
+            raise InitError(f"agent changed the first heading of {lang}.md; nothing written")
+    return {lang: found[lang] for lang in current}
+
+
+def run_add_rule(args):
+    d = user_rules_dir()
+    current = {lang: rules_file(lang).read_text() for lang in LANGS}
+    prompt = (KIT / "prompts" / "add-rule.md").read_text().replace("{{RULE}}", args.rule.strip())
+    prompt += "".join(f"=== {lang}.md ===\n{text.rstrip()}\n\n" for lang, text in current.items()) + "=== end ===\n"
+    log(f"{args.agent}: writing the rule (this can take a minute)...")
+    new = parse_rules_answer(ask_agent(args.agent, prompt), current)
+    changed = [lang for lang in LANGS if new[lang] != current[lang]]
+    if not changed:
+        log("the agent changed nothing; the rule may already be covered")
+        return 0
+    for lang in changed:
+        sys.stdout.writelines(difflib.unified_diff(
+            current[lang].splitlines(True), new[lang].splitlines(True), f"a/{lang}.md", f"b/{lang}.md"))
+    if args.dry_run:
+        return 0
+    seed_rules()
+    for lang in changed:
+        (d / f"{lang}.md").write_text(new[lang])
+        log(f"rules: updated {d / f'{lang}.md'}")
+    log("apply it to your repos: `agent-kit init ~/repos --all --check`, then without --check")
+    return 0
+
+
 def fill_with_agent(repo, agent, lang, migrate):
     """Run the agent; return True if it exited cleanly."""
     prompt = (KIT / "prompts" / "fill.md").read_text().replace("{{LANG_NAME}}", LANGS[lang])
@@ -222,14 +294,7 @@ def fill_with_agent(repo, agent, lang, migrate):
                "Bash(git log:*)", "Bash(git ls-files:*)", "Bash(ls:*)"]
     else:
         cmd = ["codex", "exec", "--sandbox", "workspace-write", prompt]
-    exe = shutil.which(cmd[0])
-    if not exe:
-        raise InitError(f"{cmd[0]} not found in PATH")
-    # asdf shims resolve the version from the cwd's .tool-versions, which the target repo may pin differently
-    if "/.asdf/shims/" in exe:
-        real = subprocess.run(["asdf", "which", cmd[0]], cwd=Path.home(), capture_output=True, text=True).stdout.strip()
-        exe = real or exe
-    cmd[0] = exe
+    cmd[0] = resolve_exe(cmd[0])
     log(f"{agent}: analyzing the repo to fill project sections (this can take a minute)...")
     if subprocess.run(cmd, cwd=repo, stdin=subprocess.DEVNULL).returncode != 0:
         log(f"WARNING: {agent} exited with an error; review AGENTS.md")
@@ -376,6 +441,12 @@ def build_parser():
     rp = sub.add_parser("rules", help="show which rules files the managed block is built from")
     rp.add_argument("--init", action="store_true", help="copy the bundled rules into the user rules dir (never overwrites)")
     rp.set_defaults(func=run_rules)
+
+    ap_add = sub.add_parser("add-rule", help="have a local agent add a rule to your rules files (all languages)")
+    ap_add.add_argument("rule", help="the rule, in any language, e.g. \"never push without asking\"")
+    ap_add.add_argument("--agent", choices=["claude", "codex"], default="claude", help="local agent CLI to use (default: claude)")
+    ap_add.add_argument("--dry-run", action="store_true", help="print the diff, write nothing")
+    ap_add.set_defaults(func=run_add_rule)
     return ap
 
 
