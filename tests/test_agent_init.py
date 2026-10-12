@@ -1,0 +1,180 @@
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
+from pathlib import Path
+
+KIT = Path(__file__).resolve().parent.parent
+SCRIPT = KIT / "bin" / "agent-init"
+
+_loader = SourceFileLoader("agent_init", str(SCRIPT))
+ai = module_from_spec(spec_from_loader("agent_init", _loader))
+_loader.exec_module(ai)
+
+
+class TempDir(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        # PATH with only git, so ai-memory/claude/codex can never run from the tests
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        (self.bin / "git").symlink_to(shutil.which("git"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def git_repo(self, name="repo"):
+        repo = self.tmp / name
+        repo.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        return repo
+
+    def run_cli(self, *args):
+        env = {**os.environ, "PATH": str(self.bin)}
+        return subprocess.run([sys.executable, str(SCRIPT), *map(str, args)],
+                              capture_output=True, text=True, env=env)
+
+
+class UpsertBlockTest(unittest.TestCase):
+    block = ai.render_block("en", "en")
+
+    def test_creates_file_with_title(self):
+        self.assertEqual(ai.upsert_block(None, self.block), f"# AGENTS.md\n\n{self.block}")
+
+    def test_inserts_after_existing_title(self):
+        out = ai.upsert_block("# Project\n\nSome notes.\n", self.block)
+        self.assertTrue(out.startswith(f"# Project\n\n{self.block}\n"))
+        self.assertTrue(out.endswith("Some notes.\n"))
+
+    def test_replaces_existing_block_and_is_idempotent(self):
+        old = "# P\n\n<!-- agent-kit:start -->\nold rules\n<!-- agent-kit:end -->\n\nnotes\n"
+        once = ai.upsert_block(old, self.block)
+        self.assertNotIn("old rules", once)
+        self.assertIn("notes", once)
+        self.assertEqual(ai.upsert_block(once, self.block), once)
+
+    def test_render_block_records_langs(self):
+        block = ai.render_block("pt", "en")
+        self.assertTrue(block.startswith("<!-- agent-kit:start lang=pt git-lang=en -->"))
+        self.assertNotIn("{{", block)
+
+
+class PlanTest(TempDir):
+    def test_saved_langs(self):
+        repo = self.git_repo()
+        self.assertEqual(ai.saved_langs(repo), (None, None))
+        (repo / "AGENTS.md").write_text(ai.render_block("pt", "en"))
+        self.assertEqual(ai.saved_langs(repo), ("pt", "en"))
+        (repo / "AGENTS.md").write_text("<!-- agent-kit:start -->\n<!-- agent-kit:end -->\n")
+        self.assertEqual(ai.saved_langs(repo), (None, None))
+
+    def test_plan_then_apply_is_idempotent(self):
+        repo = self.git_repo()
+        ch = ai.plan(repo, "en", "en")
+        self.assertEqual({ch.rel(p) for p in ch.pending}, {
+            "AGENTS.md", "CLAUDE.md", ".git/info/exclude", ".claude/settings.local.json"})
+        ch.apply()
+        exclude = (repo / ".git/info/exclude").read_text().splitlines()
+        self.assertIn(".worktrees/", exclude)
+        self.assertIn(".claude/settings.local.json", exclude)
+        self.assertEqual(ai.plan(repo, "en", "en").pending, {})
+
+    def test_tracked_gitignore_entry_counts(self):
+        repo = self.git_repo()
+        (repo / ".gitignore").write_text(".worktrees/\n")
+        ch = ai.Changes(repo)
+        ai.ensure_ignored(ch, ".worktrees/", False)
+        self.assertEqual(ch.pending, {})
+
+    def test_settings_merge_keeps_other_keys(self):
+        repo = self.git_repo()
+        f = repo / ".claude" / "settings.local.json"
+        f.parent.mkdir()
+        f.write_text('{"permissions": {"allow": ["Bash(ls:*)"]}}')
+        ai.plan(repo, "en", "en").apply()
+        data = json.loads(f.read_text())
+        self.assertEqual(data["attribution"], {"commit": "", "pr": ""})
+        self.assertEqual(data["permissions"], {"allow": ["Bash(ls:*)"]})
+
+    def test_bad_settings_raise_init_error(self):
+        repo = self.git_repo()
+        f = repo / ".claude" / "settings.local.json"
+        f.parent.mkdir()
+        for bad in ("{not json", "[]", '{"attribution": "x"}'):
+            f.write_text(bad)
+            with self.assertRaises(ai.InitError):
+                ai.plan(repo, "en", "en")
+
+
+class CliTest(TempDir):
+    def test_agent_none_then_check_and_dry_run(self):
+        repo = self.git_repo()
+        self.assertEqual(self.run_cli(repo, "--lang", "en", "--agent", "none").returncode, 0)
+        self.assertEqual(self.run_cli(repo, "--check").returncode, 0)
+        dry = self.run_cli(repo, "--dry-run")
+        self.assertEqual(dry.returncode, 0)
+        self.assertNotIn("---", dry.stdout)
+
+        agents = repo / "AGENTS.md"
+        agents.write_text(agents.read_text().replace("Commit by batch", "Commit whenever"))
+        self.assertEqual(self.run_cli(repo, "--check").returncode, 1)
+        dry = self.run_cli(repo, "--dry-run")
+        self.assertIn("+- Commit by batch", dry.stdout)
+        self.assertIn("Commit whenever", agents.read_text())  # dry-run wrote nothing
+
+    def test_saved_lang_survives_rerun(self):
+        repo = self.git_repo()
+        self.run_cli(repo, "--lang", "en", "--git-lang", "pt", "--agent", "none")
+        self.run_cli(repo, "--agent", "none")
+        self.assertEqual(ai.saved_langs(repo), ("en", "pt"))
+
+    def test_migrate_with_agent_none_refuses_before_writing(self):
+        repo = self.git_repo()
+        (repo / "CLAUDE.md").write_text("precious notes\n")
+        r = self.run_cli(repo, "--migrate-claude", "--agent", "none")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual((repo / "CLAUDE.md").read_text(), "precious notes\n")
+        self.assertFalse((repo / "AGENTS.md").exists())
+
+    def test_migrate_keeps_claude_md_when_agent_missing(self):
+        repo = self.git_repo()
+        (repo / "CLAUDE.md").write_text("precious notes\n")
+        r = self.run_cli(repo, "--migrate-claude", "--agent", "claude")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual((repo / "CLAUDE.md").read_text(), "precious notes\n")
+
+    def test_not_a_repo(self):
+        self.assertEqual(self.run_cli(self.tmp, "--agent", "none").returncode, 2)
+
+    def test_all(self):
+        root = self.tmp / "repos"
+        en, pt = self.git_repo("repos/a"), self.git_repo("repos/group/b")
+        legacy, plain = self.git_repo("repos/legacy"), self.git_repo("repos/plain")
+        self.run_cli(en, "--lang", "en", "--agent", "none")
+        self.run_cli(pt, "--lang", "pt", "--agent", "none")
+        (legacy / "AGENTS.md").write_text("<!-- agent-kit:start -->\nold\n<!-- agent-kit:end -->\n")
+
+        self.assertEqual(self.run_cli(root, "--all", "--check").returncode, 0)
+        (pt / "AGENTS.md").write_text((pt / "AGENTS.md").read_text().replace("Commits", "XX"))
+        r = self.run_cli(root, "--all", "--check")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("outdated group/b", r.stdout)
+        self.assertIn("SKIP legacy", r.stdout)
+
+        self.assertEqual(self.run_cli(root, "--all").returncode, 0)
+        self.assertEqual(ai.saved_langs(pt), ("pt", "pt"))
+        self.assertEqual(self.run_cli(root, "--all", "--check").returncode, 0)
+        self.assertIn("old", (legacy / "AGENTS.md").read_text())
+        self.assertFalse((plain / "AGENTS.md").exists())
+
+    def test_all_rejects_per_repo_flags(self):
+        self.assertEqual(self.run_cli(self.tmp, "--all", "--lang", "en").returncode, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
