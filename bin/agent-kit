@@ -24,6 +24,12 @@ from pathlib import Path
 KIT = Path(__file__).resolve().parent.parent
 END = "<!-- agent-kit:end -->"
 START_RE = re.compile(r"<!-- agent-kit:start(?: lang=(\w+) git-lang=(\w+))? -->")
+AI_MEMORY_START = "<!-- ai-memory:start -->"
+MARKER_RE = re.compile(r"<!--\s*(agent-kit|ai-memory):")
+SUSPICIOUS_RE = re.compile(
+    r"https?://|\b(curl|wget|sudo|eval|base64|chmod|chown|ssh|scp|nc)\b|\|\s*(ba|z)?sh\b"
+    r"|hooks?\b|allowedTools|permission|settings(\.local)?\.json|\.mcp\.json"
+    r"|ignore (all |any )?(previous|prior|above)|api[_ -]?key|token|secret|password", re.I)
 LANGS = {"pt": "português do Brasil", "en": "English"}
 SKIP_DIRS = {".worktrees", "node_modules", ".venv", "venv", "vendor", "target", "build", "dist"}
 
@@ -283,23 +289,74 @@ def run_add_rule(args):
     return 0
 
 
-def fill_with_agent(repo, agent, lang, migrate):
-    """Run the agent; return True if it exited cleanly."""
+def split_agents_md(text):
+    """(head through the agent-kit block, project part, ai-memory block and after)."""
+    i = text.index(END) + len(END)
+    j = text.find(AI_MEMORY_START, i)
+    j = len(text) if j < 0 else j
+    return text[:i], text[i:j], text[j:]
+
+
+def parse_sections(answer):
+    m = re.search(r"^=== project sections ===[ \t]*$(.*?)^=== end ===", answer, flags=re.M | re.S)
+    if not m:
+        raise InitError("agent answer lacks the `=== project sections ===` / `=== end ===` delimiters; AGENTS.md left as is")
+    body = re.sub(r"^\s*```\w*\n|\n```\s*$", "", m.group(1).strip("\n")).strip()
+    if MARKER_RE.search(body):
+        raise InitError("agent answer contains agent-kit/ai-memory markers; AGENTS.md left as is")
+    if not re.search(r"^## ", body, flags=re.M):
+        raise InitError("agent answer has no `## ` section; AGENTS.md left as is")
+    return body
+
+
+def suspicious_lines(old, new):
+    """Added lines worth a human look: likely prompt-injection payloads."""
+    added = [l[1:] for l in difflib.unified_diff(old.splitlines(), new.splitlines(), lineterm="")
+             if l.startswith("+") and not l.startswith("+++")]
+    return [l for l in added if SUSPICIOUS_RE.search(l)]
+
+
+def fill_with_agent(repo, agent, lang, migrate, trust):
+    """Ask the agent (read-only) for the project sections and write them into AGENTS.md ourselves."""
     prompt = (KIT / "prompts" / "fill.md").read_text().replace("{{LANG_NAME}}", LANGS[lang])
     if migrate:
-        prompt += (KIT / "prompts" / "migrate.md").read_text()
-    if agent == "claude":
-        cmd = ["claude", "-p", prompt, "--permission-mode", "acceptEdits",
-               "--allowedTools", "Read", "Glob", "Grep", "Edit", "Write",
-               "Bash(git log:*)", "Bash(git ls-files:*)", "Bash(ls:*)"]
-    else:
-        cmd = ["codex", "exec", "--sandbox", "workspace-write", prompt]
-    cmd[0] = resolve_exe(cmd[0])
-    log(f"{agent}: analyzing the repo to fill project sections (this can take a minute)...")
-    if subprocess.run(cmd, cwd=repo, stdin=subprocess.DEVNULL).returncode != 0:
-        log(f"WARNING: {agent} exited with an error; review AGENTS.md")
-        return False
-    return True
+        prompt += "\n" + (KIT / "prompts" / "migrate.md").read_text()
+    with tempfile.TemporaryDirectory(prefix="agent-kit-") as tmp:
+        out = Path(tmp) / "answer.md"
+        if agent == "claude":
+            cmd = [resolve_exe("claude"), "-p", prompt, "--output-format", "text",
+                   "--tools", "Read", "Glob", "Grep", "Bash",
+                   "--allowedTools", "Read", "Glob", "Grep",
+                   "Bash(git log:*)", "Bash(git ls-files:*)", "Bash(ls:*)"]
+            if not trust:
+                # a cloned repo's .claude/settings.json hooks and .mcp.json servers must not run
+                cmd += ["--setting-sources", "user", "--strict-mcp-config"]
+        else:
+            cmd = [resolve_exe("codex"), "exec", "--sandbox", "read-only", "-o", str(out), prompt]
+        log(f"{agent}: analyzing the repo to fill project sections ({'trusted' if trust else 'read-only, project config ignored'}; this can take a minute)...")
+        r = subprocess.run(cmd, cwd=repo, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+        if r.returncode != 0:
+            raise InitError(f"{agent} exited with {r.returncode}: {r.stderr.strip()[-500:]}")
+        answer = out.read_text() if agent == "codex" else r.stdout
+
+    f = repo / "AGENTS.md"
+    text = f.read_text()
+    head, old, tail = split_agents_md(text)
+    sections = parse_sections(answer)
+    new = f"{head}\n\n{sections}\n" + (f"\n{tail}" if tail else "")
+    ch = Changes(repo)
+    ch.write(f, new, "AGENTS.md: project sections written")
+    if not ch.pending:
+        log("AGENTS.md: project sections unchanged")
+        return
+    ch.diff()
+    ch.apply()
+    flagged = suspicious_lines(old, sections)
+    if flagged:
+        log("REVIEW: the agent wrote lines that run commands, fetch URLs or touch permissions; "
+            "check they come from the project and not from injected text:")
+        for line in flagged:
+            log(f"  | {line.strip()}")
 
 
 def find_repos(root, max_depth=3):
@@ -377,15 +434,16 @@ def run_one(repo, args):
 
     ch.apply()
     install_ai_memory(repo, args.full_memory, not args.no_skills)
-    ok = True
     if args.agent != "none":
-        ok = fill_with_agent(repo, args.agent, lang, args.migrate_claude)
+        try:
+            fill_with_agent(repo, args.agent, lang, args.migrate_claude, args.trust)
+        except InitError:
+            if args.migrate_claude:
+                log("CLAUDE.md: left untouched because the agent failed; it still lacks `@AGENTS.md`, rerun --migrate-claude")
+            raise
     if args.migrate_claude:
-        if ok:
-            (repo / "CLAUDE.md").write_text(CLAUDE_MD)
-            log("CLAUDE.md: replaced with the import stub")
-        else:
-            log("CLAUDE.md: left untouched because the agent failed; it still lacks `@AGENTS.md`, rerun --migrate-claude")
+        (repo / "CLAUDE.md").write_text(CLAUDE_MD)
+        log("CLAUDE.md: replaced with the import stub")
     log("done. Review with `git diff` / `git status`; nothing was committed.")
     return 0
 
@@ -406,7 +464,7 @@ def run_init(args):
         bad = [f for f, v in (("--lang", args.lang), ("--git-lang", args.git_lang), ("--agent", args.agent),
                               ("--migrate-claude", args.migrate_claude), ("--full-memory", args.full_memory),
                               ("--tracked", args.tracked), ("--hide-agent-files", args.hide_agent_files),
-                              ("--no-skills", args.no_skills)) if v]
+                              ("--no-skills", args.no_skills), ("--trust", args.trust)) if v]
         if bad:
             raise InitError(f"--all only re-applies the deterministic part; not compatible with {', '.join(bad)}")
         if not target.is_dir():
@@ -433,6 +491,7 @@ def build_parser():
     ip.add_argument("--hide-agent-files", action="store_true", help="also exclude AGENTS.md/CLAUDE.md locally (upstream forks)")
     ip.add_argument("--migrate-claude", action="store_true", help="move an existing CLAUDE.md into AGENTS.md (via the agent) and replace it with the import stub")
     ip.add_argument("--no-skills", action="store_true", help="do not install ai-memory skills into the project")
+    ip.add_argument("--trust", action="store_true", help="let the agent load the target repo's own Claude Code settings, hooks and MCP servers (your own repos only)")
     ip.add_argument("--all", action="store_true", help="re-apply the deterministic part to every agent-kit repo under REPO (keeps each repo's saved languages)")
     ip.add_argument("--check", action="store_true", help="write nothing; list what is outdated and exit 1 if anything is")
     ip.add_argument("--dry-run", action="store_true", help="write nothing; print the diff of what would change")
