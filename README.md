@@ -56,3 +56,7 @@ already has the agent-kit marker. It runs the deterministic part only (steps 1-4
 no agent) and keeps each repo's saved languages, so it does not accept `--lang` or other per-repo
 flags. Repos with an old marker without a saved language are skipped; run
 `agent-init <repo> --lang <pt|en>` there once.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
