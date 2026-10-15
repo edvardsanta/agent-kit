@@ -83,7 +83,8 @@ class UpsertBlockTest(unittest.TestCase):
 
     def test_render_block_records_langs(self):
         block = ai.render_block("pt", "en")
-        self.assertTrue(block.startswith("<!-- agent-kit:start lang=pt git-lang=en -->"))
+        self.assertTrue(block.startswith(
+            "<!-- agent-kit:start docs-lang=pt chat-lang=pt git-lang=en -->"))
         self.assertNotIn("{{", block)
 
 
@@ -95,6 +96,14 @@ class PlanTest(TempDir):
         self.assertEqual(ai.saved_langs(repo), ("pt", "en"))
         (repo / "AGENTS.md").write_text("<!-- agent-kit:start -->\n<!-- agent-kit:end -->\n")
         self.assertEqual(ai.saved_langs(repo), (None, None))
+
+    def test_saved_languages_reads_legacy_and_new_markers(self):
+        repo = self.git_repo()
+        (repo / "AGENTS.md").write_text(
+            "<!-- agent-kit:start lang=en git-lang=pt -->\n<!-- agent-kit:end -->\n")
+        self.assertEqual(ai.saved_languages(repo), ("en", "en", "pt"))
+        (repo / "AGENTS.md").write_text(ai.render_block("en", "en", "pt"))
+        self.assertEqual(ai.saved_languages(repo), ("en", "pt", "en"))
 
     def test_plan_then_apply_is_idempotent(self):
         repo = self.git_repo()
@@ -156,6 +165,75 @@ class CliTest(TempDir):
         self.run_cli(repo, "--agent", "none")
         self.assertEqual(ai.saved_langs(repo), ("en", "pt"))
 
+    def test_languages_are_independent(self):
+        repo = self.git_repo()
+        r = self.run_cli(repo, "--docs-lang", "en", "--chat-lang", "pt",
+                         "--git-lang", "en", "--agent", "none")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        text = (repo / "AGENTS.md").read_text()
+        self.assertIn("Talk with the user in português do Brasil", text)
+        self.assertIn("Write documentation in English", text)
+        self.assertEqual(ai.saved_languages(repo), ("en", "pt", "en"))
+
+    def test_missing_agent_changes_nothing(self):
+        repo = self.git_repo()
+        r = self.run_cli(repo)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no files were changed", r.stderr)
+        self.assertFalse((repo / "AGENTS.md").exists())
+        self.assertFalse((repo / "CLAUDE.md").exists())
+
+    def test_existing_claude_requires_an_explicit_choice(self):
+        repo = self.git_repo()
+        claude = repo / "CLAUDE.md"
+        claude.write_text("precious notes\n")
+        r = self.run_cli(repo, "--agent", "none")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("--migrate-claude", r.stderr)
+        self.assertFalse((repo / "AGENTS.md").exists())
+        r = self.run_cli(repo, "--agent", "none", "--keep-claude")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(claude.read_text(), "precious notes\n")
+
+    def test_init_from_subdirectory_uses_repository_root(self):
+        repo = self.git_repo()
+        sub = repo / "nested" / "dir"
+        sub.mkdir(parents=True)
+        self.assertEqual(self.run_cli(sub, "--agent", "none").returncode, 0)
+        self.assertTrue((repo / "AGENTS.md").exists())
+        self.assertFalse((sub / "AGENTS.md").exists())
+
+    def test_upstream_profile_hides_all_local_artifacts(self):
+        repo = self.git_repo()
+        r = self.run_cli(repo, "--profile", "upstream", "--agent", "none")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        exclude = (repo / ".git" / "info" / "exclude").read_text().splitlines()
+        for entry in ("AGENTS.md", "CLAUDE.md", "AGENTS.md.bak-*", ".agents/"):
+            self.assertIn(entry, exclude)
+        status = subprocess.run(["git", "status", "--short"], cwd=repo,
+                                capture_output=True, text=True, check=True)
+        self.assertEqual(status.stdout, "")
+
+    def test_upstream_profile_refuses_tracked_agent_files(self):
+        repo = self.git_repo()
+        agents = repo / "AGENTS.md"
+        agents.write_text("tracked instructions\n")
+        subprocess.run(["git", "add", "AGENTS.md"], cwd=repo, check=True)
+        r = self.run_cli(repo, "--profile", "upstream", "--agent", "none")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("cannot be hidden", r.stderr)
+        self.assertIn("no files were changed", r.stderr)
+        self.assertEqual(agents.read_text(), "tracked instructions\n")
+
+    def test_check_and_dry_run_are_mutually_exclusive(self):
+        repo = self.git_repo()
+        self.assertEqual(self.run_cli(repo, "--check", "--dry-run").returncode, 2)
+
+    def test_claude_choices_are_mutually_exclusive(self):
+        repo = self.git_repo()
+        r = self.run_cli(repo, "--migrate-claude", "--keep-claude")
+        self.assertEqual(r.returncode, 2)
+
     def test_migrate_with_agent_none_refuses_before_writing(self):
         repo = self.git_repo()
         (repo / "CLAUDE.md").write_text("precious notes\n")
@@ -182,7 +260,9 @@ class CliTest(TempDir):
         self.run_cli(pt, "--lang", "pt", "--agent", "none")
         (legacy / "AGENTS.md").write_text("<!-- agent-kit:start -->\nold\n<!-- agent-kit:end -->\n")
 
-        self.assertEqual(self.run_cli(root, "--all", "--check").returncode, 0)
+        first = self.run_cli(root, "--all", "--check")
+        self.assertEqual(first.returncode, 1)
+        self.assertIn("1 need migration", first.stdout)
         (pt / "AGENTS.md").write_text((pt / "AGENTS.md").read_text().replace("Commits", "XX"))
         r = self.run_cli(root, "--all", "--check")
         self.assertEqual(r.returncode, 1)
@@ -191,12 +271,32 @@ class CliTest(TempDir):
 
         self.assertEqual(self.run_cli(root, "--all").returncode, 0)
         self.assertEqual(ai.saved_langs(pt), ("pt", "pt"))
-        self.assertEqual(self.run_cli(root, "--all", "--check").returncode, 0)
+        final = self.run_cli(root, "--all", "--check")
+        self.assertEqual(final.returncode, 1)
+        self.assertIn("2 current", final.stdout)
+        self.assertIn("1 need migration", final.stdout)
         self.assertIn("old", (legacy / "AGENTS.md").read_text())
         self.assertFalse((plain / "AGENTS.md").exists())
 
     def test_all_rejects_per_repo_flags(self):
         self.assertEqual(self.run_cli(self.tmp, "--all", "--lang", "en").returncode, 2)
+
+    def test_sync_is_the_discoverable_all_command(self):
+        root = self.tmp / "repos"
+        repo = self.git_repo("repos/a")
+        self.run_cli(repo, "--agent", "none")
+        r = self.run_kit("sync", root, "--check")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("1 current", r.stdout)
+
+    def test_version_and_doctor(self):
+        version = self.run_kit("--version")
+        self.assertEqual(version.returncode, 0)
+        self.assertEqual(version.stdout.strip(), f"agent-kit {ai.VERSION}")
+        doctor = self.run_kit("doctor")
+        self.assertEqual(doctor.returncode, 0, doctor.stderr)
+        self.assertIn("git:", doctor.stdout)
+        self.assertIn("claude: not found", doctor.stdout)
 
 
 class RulesTest(TempDir):
@@ -218,6 +318,34 @@ class RulesTest(TempDir):
         self.run_kit("rules", "--init")
         self.assertEqual((self.rules / "en.md").read_text(), "mine\n")
         self.assertTrue((self.rules / "pt.md").exists())
+
+    def test_project_rules_are_additive_and_tracked(self):
+        repo = self.git_repo()
+        r = self.run_kit("rules", "init", "--scope", "project", "--repo", repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("apply them with", r.stdout)
+        project_rule = repo / ".agent-kit" / "rules" / "en.md"
+        project_rule.write_text(project_rule.read_text() + "\n- Use the project convention.\n")
+        r = self.run_kit("init", repo, "--docs-lang", "en", "--agent", "none")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        text = (repo / "AGENTS.md").read_text()
+        self.assertIn("Commit by batch", text)
+        self.assertIn("Use the project convention", text)
+
+    def test_rules_show_project_scope(self):
+        repo = self.git_repo()
+        r = self.run_kit("rules", "show", "--scope", "project", "--repo", repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(str(repo / ".agent-kit" / "rules"), r.stdout)
+        self.assertIn("not created", r.stdout)
+        self.assertIn("Global baseline:", r.stdout)
+        self.assertIn("Project overlay:", r.stdout)
+
+    def test_repo_requires_project_scope(self):
+        repo = self.git_repo()
+        r = self.run_kit("rules", "show", "--repo", repo)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("requires --scope project", r.stderr)
 
     def test_xdg_config_home_is_the_default(self):
         env = {k: v for k, v in os.environ.items() if k != "AGENT_KIT_RULES"}
@@ -245,6 +373,11 @@ class AddRuleTest(TempDir):
                 text = text.replace("{{GIT_LANG_NAME}}", "English")
             out += f"=== {lang}.md ===\n{text}\n"
         return "```\n" + out + "=== end ===\n```\n"
+
+    def project_answer(self):
+        return ("=== en.md ===\n## Project rules\n\n- Never force push.\n"
+                "=== pt.md ===\n## Regras do projeto\n\n- Nunca faça force push.\n"
+                "=== end ===\n")
 
     def test_writes_user_rules_and_init_uses_them(self):
         self.fake_claude(self.answer())
@@ -276,6 +409,15 @@ class AddRuleTest(TempDir):
             self.assertEqual(r.returncode, 2)
             self.assertIn("nothing written", r.stderr)
             self.assertFalse(self.rules.exists())
+
+    def test_adds_a_project_scoped_rule(self):
+        repo = self.git_repo()
+        self.fake_claude(self.project_answer())
+        r = self.run_kit("rules", "add", "never force push", "--scope", "project",
+                         "--repo", repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Never force push", (repo / ".agent-kit" / "rules" / "en.md").read_text())
+        self.assertFalse(self.rules.exists())
 
 
 class FillTest(TempDir):

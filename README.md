@@ -5,8 +5,10 @@ Personal CLI to standardize `AGENTS.md` / `CLAUDE.md` across projects.
 ## Install
 
 ```bash
-make install   # symlinks agent-kit and agent-init into ~/.local/bin (PREFIX=... to change)
-make test      # stdlib unittest, no dependencies
+make install          # symlinks agent-kit and agent-init into ~/.local/bin
+make test             # stdlib unittest, no dependencies
+agent-kit doctor      # show which optional tools are available
+agent-kit --version
 ```
 
 `agent-init` is an alias for `agent-kit init`; every example below works with either.
@@ -14,18 +16,24 @@ make test      # stdlib unittest, no dependencies
 ## Usage
 
 ```bash
-agent-init ~/repos/my-project --lang pt             # conversation/docs in pt, commits in pt
-agent-init . --lang pt --git-lang en                # docs in pt, commits/issues/PRs in English
-agent-init . --agent codex                          # codex fills the project sections
+agent-init . --profile own                          # your repo: track .worktrees/ in .gitignore
+agent-init ~/repos/rpcs3 --profile upstream         # third-party clone: hide local artifacts
+agent-init . --chat-lang pt --docs-lang en --git-lang en
+agent-init . --agent codex                          # choose explicitly; default is auto
 agent-init . --agent none                           # deterministic part only
 agent-init . --trust                                # your own repo: agent loads its hooks/MCP (ai-memory)
 agent-init . --migrate-claude                       # old CLAUDE.md -> AGENTS.md + stub
-agent-init ~/repos/rpcs3 --hide-agent-files         # fork/upstream: nothing shows up in the diff
+agent-init . --keep-claude                          # intentionally keep an independent CLAUDE.md
 agent-init . --dry-run                              # print the diff, write nothing
 agent-init . --check                                # exit 1 if anything is outdated
-agent-init ~/repos --all --check                    # list outdated agent-kit repos
-agent-init ~/repos --all                            # re-apply the rules to all of them
+agent-kit sync ~/repos --check                      # list repos needing an update/migration
+agent-kit sync ~/repos                              # re-apply rules to all managed repos
 ```
+
+`--lang` remains as a compatibility alias for `--chat-lang` plus `--docs-lang`.
+`init --all`, `--hide-agent-files`, `rules --init`, and `add-rule` also remain supported.
+The upstream profile refuses to modify an already tracked `AGENTS.md`, `CLAUDE.md`, or generated
+Claude settings because `.git/info/exclude` cannot hide changes to tracked files.
 
 ## What it does
 
@@ -38,11 +46,17 @@ agent-init ~/repos --all                            # re-apply the rules to all 
 6. An agent (`claude -p` or `codex exec`) reads the repo and answers with overview, commands,
    conventions and pitfalls (`prompts/fill.md`); agent-kit writes them outside the managed blocks.
 
-Idempotent: the language is stored in the marker, so running it again does not change the language.
+Idempotent: chat, documentation, and Git languages are stored independently in the marker, so
+running it again preserves each choice. The command can be run from any repository subdirectory.
 It never commits.
 
 `--migrate-claude` needs an agent (it refuses `--agent none`), and `CLAUDE.md` is only replaced
-by the stub if the agent exits cleanly.
+by the stub if the agent exits cleanly. An independent `CLAUDE.md` otherwise stops initialization
+before any write; use `--keep-claude` to keep it intentionally.
+
+Agent output is generated and validated before planned repository changes are applied. A missing
+agent or rejected answer therefore leaves the repository unchanged. `--agent auto` chooses Claude,
+then Codex, and explains how to continue with `--agent none` when neither is installed.
 
 ## Prompt injection
 
@@ -62,8 +76,8 @@ it produces becomes instructions for every agent that later works in that repo. 
   hooks, permissions, tokens, "ignore previous..."). The diff is always printed, and nothing is committed.
 
 This reduces the risk; it does not remove it. Read the `AGENTS.md` diff before committing, especially
-in repos you cloned from someone else. `--all`, `--check` and `--dry-run` never call an agent.
-`add-rule` runs the agent with no tools in an empty directory.
+in repos you cloned from someone else. `sync`, `--all`, `--check` and `--dry-run` never call an
+agent. Rule editing runs the agent with no tools in an empty directory.
 
 ## Your rules
 
@@ -76,41 +90,52 @@ never conflicts with them:
   `rules/<lang>.md`.
 
 ```bash
-agent-kit rules          # show which file each language is read from
-agent-kit rules --init   # copy the bundled rules there to start editing (never overwrites)
+agent-kit rules show          # show global rule files
+agent-kit rules init          # seed global personal rules (never overwrites)
+agent-kit rules add "never git push without asking"
 ```
 
-Both files have `{{LANG_NAME}}` / `{{GIT_LANG_NAME}}` placeholders, and they should say
-the same thing in each language.
+Both files have `{{CHAT_LANG_NAME}}`, `{{DOCS_LANG_NAME}}`, and `{{GIT_LANG_NAME}}`
+placeholders, and they should say the same thing in each language. Existing personal templates
+using the legacy `{{LANG_NAME}}` placeholder continue to work when chat and docs use one language.
 
-### Adding a rule with a local agent
+### Project-specific rules
+
+Project rules are tracked additive overlays in `.agent-kit/rules/{en,pt}.md`. They are appended
+to the global baseline instead of copying it, so later global updates still propagate.
 
 ```bash
-agent-kit add-rule "never git push without asking" --dry-run   # show the diff only
-agent-kit add-rule "never git push without asking"              # write it
-agent-kit add-rule "..." --agent codex
+agent-kit rules init --scope project
+agent-kit rules add "never force-push" --scope project
+agent-kit rules show --scope project           # shows baseline plus overlay
+agent-kit init . --agent none                  # render the updated AGENTS.md block
 ```
 
-The local `claude` (or `codex`) CLI gets the current rules and returns every language file
+Pass `--repo PATH` to manage another repository. The local Claude or Codex CLI gets the current
+rules and returns every language file
 with the rule placed in the right section, translated, and merged with any rule it overlaps.
 It runs with no tools in an empty directory. agent-kit checks the answer (every language present,
 placeholders and first heading kept) before writing to your rules dir, and prints the diff.
+
+Global rule editing remains available through `agent-kit rules add "..."`; `agent-kit add-rule`
+is its compatibility alias.
 
 ## Changing a rule for every project
 
 Edit your rules (or use `add-rule`), then:
 
 ```bash
-agent-init ~/repos --all --check   # see which repos are outdated
-agent-init ~/repos --all --dry-run # see the diff
-agent-init ~/repos --all           # apply
+agent-kit sync ~/repos --check   # see outdated repos and required migrations
+agent-kit sync ~/repos --dry-run # see the diff
+agent-kit sync ~/repos           # apply
 ```
 
-`--all` scans up to 3 levels below the given directory and only touches repos whose `AGENTS.md`
+`sync` scans up to 3 levels below the given directory and only touches repos whose `AGENTS.md`
 already has the agent-kit marker. It runs the deterministic part only (steps 1-4: no ai-memory,
-no agent) and keeps each repo's saved languages, so it does not accept `--lang` or other per-repo
-flags. Repos with an old marker without a saved language are skipped; run
-`agent-init <repo> --lang <pt|en>` there once.
+no agent) and keeps each repo's saved languages. Repositories requiring migration are counted in
+the summary, and make `--check` exit 1 instead of reporting everything as current. Repos with an
+old marker without a saved language need one explicit initialization:
+`agent-kit init <repo> --docs-lang <pt|en> --agent none`.
 
 ## License
 

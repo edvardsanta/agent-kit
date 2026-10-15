@@ -7,8 +7,8 @@ Deterministic part (idempotent): managed rules block, CLAUDE.md import, .gitigno
 no-coauthor setting for Claude Code, ai-memory routing block.
 Generative part (optional): claude or codex fills the project-specific sections.
 
-`agent-kit rules`: show (or seed with --init) the rules used for the managed block.
-`agent-kit add-rule "..."`: a local agent (claude or codex) writes the rule into your rules files.
+`agent-kit sync`: re-apply deterministic rules to existing agent-kit repositories.
+`agent-kit rules`: show, seed or update the rules used for the managed block.
 """
 import argparse
 import difflib
@@ -22,8 +22,9 @@ import tempfile
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parent.parent
+VERSION = "0.2.0"
 END = "<!-- agent-kit:end -->"
-START_RE = re.compile(r"<!-- agent-kit:start(?: lang=(\w+) git-lang=(\w+))? -->")
+START_RE = re.compile(r"<!-- agent-kit:start(?P<attrs>(?: [\w-]+=[\w-]+)*) -->")
 AI_MEMORY_START = "<!-- ai-memory:start -->"
 MARKER_RE = re.compile(r"<!--\s*(agent-kit|ai-memory):")
 SUSPICIOUS_RE = re.compile(
@@ -32,6 +33,7 @@ SUSPICIOUS_RE = re.compile(
     r"|ignore (all |any )?(previous|prior|above)|api[_ -]?key|token|secret|password", re.I)
 LANGS = {"pt": "português do Brasil", "en": "English"}
 SKIP_DIRS = {".worktrees", "node_modules", ".venv", "venv", "vendor", "target", "build", "dist"}
+PROJECT_RULE_HEADINGS = {"en": "## Project rules\n", "pt": "## Regras do projeto\n"}
 
 CLAUDE_MD = """@AGENTS.md
 
@@ -99,6 +101,10 @@ def rules_file(lang):
     return f if f.exists() else KIT / "rules" / f"{lang}.md"
 
 
+def project_rules_file(repo, lang):
+    return repo / ".agent-kit" / "rules" / f"{lang}.md"
+
+
 def seed_rules():
     """Copy bundled rules that are missing from the user rules dir; never overwrite."""
     d = user_rules_dir()
@@ -110,16 +116,62 @@ def seed_rules():
             log(f"rules: created {f}")
 
 
-def render_block(lang, git_lang):
-    body = rules_file(lang).read_text()
-    body = body.replace("{{LANG_NAME}}", LANGS[lang]).replace("{{GIT_LANG_NAME}}", LANGS[git_lang])
-    return f"<!-- agent-kit:start lang={lang} git-lang={git_lang} -->\n{body.rstrip()}\n{END}\n"
+def seed_project_rules(repo):
+    created = []
+    for lang, heading in PROJECT_RULE_HEADINGS.items():
+        path = project_rules_file(repo, lang)
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(heading)
+            log(f"rules: created {path}")
+            created.append(path)
+    return created
+
+
+def render_block(docs_lang, git_lang, chat_lang=None, repo=None):
+    chat_lang = chat_lang or docs_lang
+    body = rules_file(docs_lang).read_text()
+    supports_split_languages = "{{CHAT_LANG_NAME}}" in body and "{{DOCS_LANG_NAME}}" in body
+    if repo:
+        project_file = project_rules_file(repo, docs_lang)
+        if project_file.exists():
+            project_body = project_file.read_text().strip()
+            if MARKER_RE.search(project_body):
+                raise InitError(f"{project_file}: managed-block markers are not allowed in project rules")
+            if project_body:
+                body = body.rstrip() + "\n\n" + project_body + "\n"
+    if chat_lang != docs_lang and not supports_split_languages:
+        raise InitError(
+            f"{rules_file(docs_lang)} uses the old language template; add "
+            "{{CHAT_LANG_NAME}} and {{DOCS_LANG_NAME}} before choosing different chat and docs languages")
+    replacements = {
+        "{{LANG_NAME}}": LANGS[docs_lang],  # compatibility with existing personal templates
+        "{{CHAT_LANG_NAME}}": LANGS[chat_lang],
+        "{{DOCS_LANG_NAME}}": LANGS[docs_lang],
+        "{{GIT_LANG_NAME}}": LANGS[git_lang],
+    }
+    for placeholder, value in replacements.items():
+        body = body.replace(placeholder, value)
+    marker = f"<!-- agent-kit:start docs-lang={docs_lang} chat-lang={chat_lang} git-lang={git_lang} -->"
+    return f"{marker}\n{body.rstrip()}\n{END}\n"
+
+
+def saved_languages(repo):
+    f = repo / "AGENTS.md"
+    m = START_RE.search(f.read_text()) if f.exists() else None
+    if not m:
+        return None, None, None
+    attrs = dict(re.findall(r"([\w-]+)=([\w-]+)", m.group("attrs")))
+    # Old markers used lang= for both conversation and documentation.
+    docs_lang = attrs.get("docs-lang") or attrs.get("lang")
+    chat_lang = attrs.get("chat-lang") or attrs.get("lang")
+    return docs_lang, chat_lang, attrs.get("git-lang")
 
 
 def saved_langs(repo):
-    f = repo / "AGENTS.md"
-    m = START_RE.search(f.read_text()) if f.exists() else None
-    return (m.group(1), m.group(2)) if m and m.group(1) else (None, None)
+    """Compatibility helper: the historical API returned documentation and Git languages."""
+    docs_lang, _, git_lang = saved_languages(repo)
+    return docs_lang, git_lang
 
 
 def has_marker(repo):
@@ -166,13 +218,15 @@ def ensure_agents_md(ch, block):
     ch.write(f, upsert_block(old, block), f"AGENTS.md: {'created' if old is None else 'updated'}")
 
 
-def ensure_claude_md(ch):
+def ensure_claude_md(ch, keep_existing=False):
     cm = ch.repo / "CLAUDE.md"
     text = ch.read(cm)
     if text is None:
         ch.write(cm, CLAUDE_MD, "CLAUDE.md: created (imports AGENTS.md)")
-    elif "@AGENTS.md" not in text:
-        log("WARNING: CLAUDE.md exists without `@AGENTS.md`; left untouched, merge it by hand (or use --migrate-claude)")
+    elif "@AGENTS.md" not in text and not keep_existing:
+        raise InitError(
+            "CLAUDE.md exists but does not import AGENTS.md; use --migrate-claude "
+            "or --keep-claude")
 
 
 def ensure_no_coauthor(ch):
@@ -193,14 +247,15 @@ def ensure_no_coauthor(ch):
     ch.write(f, json.dumps(data, indent=2) + "\n", ".claude/settings.local.json: attribution disabled")
 
 
-def plan(repo, lang, git_lang, tracked=False, hide_agent_files=False, migrate=False):
+def plan(repo, docs_lang, git_lang, chat_lang=None, tracked=False, hide_agent_files=False,
+         migrate=False, keep_claude=False):
     ch = Changes(repo)
-    ensure_agents_md(ch, render_block(lang, git_lang))
+    ensure_agents_md(ch, render_block(docs_lang, git_lang, chat_lang, repo))
     if not migrate:
-        ensure_claude_md(ch)
+        ensure_claude_md(ch, keep_claude)
     ensure_ignored(ch, ".worktrees/", tracked)
     if hide_agent_files:
-        for name in ("AGENTS.md", "CLAUDE.md"):
+        for name in ("AGENTS.md", "CLAUDE.md", "AGENTS.md.bak-*", ".agents/"):
             ensure_ignored(ch, name, False)
     ensure_no_coauthor(ch)
     return ch
@@ -230,6 +285,25 @@ def resolve_exe(name):
     return exe
 
 
+def select_agent(requested):
+    """Resolve auto-selection before any repository writes happen."""
+    if requested == "none":
+        return "none"
+    if requested in ("claude", "codex"):
+        if not shutil.which(requested):
+            raise InitError(
+                f"{requested} was not found; no files were changed. Install it, choose another "
+                "agent, or use --agent none")
+        resolve_exe(requested)
+        return requested
+    for candidate in ("claude", "codex"):
+        if shutil.which(candidate):
+            return candidate
+    raise InitError(
+        "no supported agent found; no files were changed. Install Claude or Codex, "
+        "choose --agent explicitly, or use --agent none")
+
+
 def ask_agent(agent, prompt):
     """Run the agent without tools in an empty dir (no project instructions) and return its answer."""
     with tempfile.TemporaryDirectory(prefix="agent-kit-") as tmp:
@@ -257,7 +331,7 @@ def parse_rules_answer(answer, current):
         raise InitError(f"agent answer has no section for {', '.join(missing)}.md; nothing written")
     for lang, old in current.items():
         new = found[lang]
-        for ph in ("{{LANG_NAME}}", "{{GIT_LANG_NAME}}"):
+        for ph in ("{{LANG_NAME}}", "{{CHAT_LANG_NAME}}", "{{DOCS_LANG_NAME}}", "{{GIT_LANG_NAME}}"):
             if ph in old and ph not in new:
                 raise InitError(f"agent dropped {ph} from {lang}.md; nothing written")
         if new.splitlines()[0] != old.splitlines()[0]:
@@ -266,8 +340,20 @@ def parse_rules_answer(answer, current):
 
 
 def run_add_rule(args):
-    d = user_rules_dir()
-    current = {lang: rules_file(lang).read_text() for lang in LANGS}
+    scope = getattr(args, "scope", "global")
+    repo_arg = getattr(args, "repo", None)
+    if repo_arg and scope != "project":
+        raise InitError("--repo requires --scope project; no rules were changed")
+    if scope == "project":
+        repo = git_root(Path(repo_arg or ".").expanduser().resolve())
+        d = repo / ".agent-kit" / "rules"
+        current = {lang: (project_rules_file(repo, lang).read_text()
+                          if project_rules_file(repo, lang).exists() else PROJECT_RULE_HEADINGS[lang])
+                   for lang in LANGS}
+    else:
+        d = user_rules_dir()
+        current = {lang: rules_file(lang).read_text() for lang in LANGS}
+    args.agent = select_agent(args.agent)
     prompt = (KIT / "prompts" / "add-rule.md").read_text().replace("{{RULE}}", args.rule.strip())
     prompt += "".join(f"=== {lang}.md ===\n{text.rstrip()}\n\n" for lang, text in current.items()) + "=== end ===\n"
     log(f"{args.agent}: writing the rule (this can take a minute)...")
@@ -281,11 +367,17 @@ def run_add_rule(args):
             current[lang].splitlines(True), new[lang].splitlines(True), f"a/{lang}.md", f"b/{lang}.md"))
     if args.dry_run:
         return 0
-    seed_rules()
+    if scope == "project":
+        seed_project_rules(repo)
+    else:
+        seed_rules()
     for lang in changed:
         (d / f"{lang}.md").write_text(new[lang])
         log(f"rules: updated {d / f'{lang}.md'}")
-    log("apply it to your repos: `agent-kit init ~/repos --all --check`, then without --check")
+    if scope == "project":
+        log(f"apply it with: `agent-kit init {repo} --agent none`")
+    else:
+        log("apply it to your repos: `agent-kit sync ~/repos --check`, then without --check")
     return 0
 
 
@@ -316,9 +408,9 @@ def suspicious_lines(old, new):
     return [l for l in added if SUSPICIOUS_RE.search(l)]
 
 
-def fill_with_agent(repo, agent, lang, migrate, trust):
-    """Ask the agent (read-only) for the project sections and write them into AGENTS.md ourselves."""
-    prompt = (KIT / "prompts" / "fill.md").read_text().replace("{{LANG_NAME}}", LANGS[lang])
+def generate_project_sections(repo, agent, docs_lang, migrate, trust):
+    """Ask the read-only agent for validated project sections without writing the repository."""
+    prompt = (KIT / "prompts" / "fill.md").read_text().replace("{{LANG_NAME}}", LANGS[docs_lang])
     if migrate:
         prompt += "\n" + (KIT / "prompts" / "migrate.md").read_text()
     with tempfile.TemporaryDirectory(prefix="agent-kit-") as tmp:
@@ -338,25 +430,17 @@ def fill_with_agent(repo, agent, lang, migrate, trust):
         if r.returncode != 0:
             raise InitError(f"{agent} exited with {r.returncode}: {r.stderr.strip()[-500:]}")
         answer = out.read_text() if agent == "codex" else r.stdout
+    return parse_sections(answer)
 
-    f = repo / "AGENTS.md"
-    text = f.read_text()
+
+def add_project_sections(ch, sections):
+    """Add validated project sections to a pending Changes transaction."""
+    f = ch.repo / "AGENTS.md"
+    text = ch.read(f)
     head, old, tail = split_agents_md(text)
-    sections = parse_sections(answer)
     new = f"{head}\n\n{sections}\n" + (f"\n{tail}" if tail else "")
-    ch = Changes(repo)
     ch.write(f, new, "AGENTS.md: project sections written")
-    if not ch.pending:
-        log("AGENTS.md: project sections unchanged")
-        return
-    ch.diff()
-    ch.apply()
-    flagged = suspicious_lines(old, sections)
-    if flagged:
-        log("REVIEW: the agent wrote lines that run commands, fetch URLs or touch permissions; "
-            "check they come from the project and not from injected text:")
-        for line in flagged:
-            log(f"  | {line.strip()}")
+    return suspicious_lines(old, sections)
 
 
 def find_repos(root, max_depth=3):
@@ -376,22 +460,27 @@ def find_repos(root, max_depth=3):
 
 def run_all(root, args):
     """Re-apply the deterministic part to every repo under `root` that already uses agent-kit."""
-    outdated = errors = 0
+    checked = current = outdated = skipped = errors = 0
     for repo in find_repos(root):
         if not has_marker(repo):
             continue
+        checked += 1
         name = os.path.relpath(repo, root)
-        lang, git_lang = saved_langs(repo)
-        if not lang:
-            log(f"SKIP {name}: marker has no saved language; run `agent-init {repo} --lang <pt|en>` once")
+        docs_lang, chat_lang, git_lang = saved_languages(repo)
+        if not docs_lang:
+            skipped += 1
+            log(f"SKIP {name}: marker has no saved language; run `agent-kit init {repo} --docs-lang <pt|en>` once")
             continue
+        chat_lang = chat_lang or docs_lang
+        git_lang = git_lang or docs_lang
         try:
-            ch = plan(repo, lang, git_lang)
+            ch = plan(repo, docs_lang, git_lang, chat_lang)
         except InitError as e:
             log(f"ERROR {name}: {e}")
             errors += 1
             continue
         if not ch.pending:
+            current += 1
             if not args.check:
                 log(f"ok {name}")
             continue
@@ -403,18 +492,42 @@ def run_all(root, args):
         else:
             log(f"updating {name}")
             ch.apply()
-    if args.check and not outdated and not errors:
-        log("all repos up to date")
-    return 1 if errors or (args.check and outdated) else 0
+    changed_label = "outdated" if args.check else "would update" if args.dry_run else "updated"
+    log(f"Checked {checked} repositories: {current} current, {outdated} {changed_label}, "
+        f"{skipped} need migration, {errors} errors.")
+    return 1 if errors or (args.check and (outdated or skipped)) else 0
+
+
+def resolve_languages(repo, args):
+    old_docs, old_chat, old_git = saved_languages(repo)
+    if args.lang and (args.docs_lang or args.chat_lang):
+        raise InitError("--lang cannot be combined with --docs-lang or --chat-lang")
+    if args.lang:
+        log("NOTE: --lang is the legacy alias for --docs-lang plus --chat-lang")
+    docs_lang = args.docs_lang or args.lang or old_docs or "pt"
+    chat_lang = args.chat_lang or args.lang or old_chat or docs_lang
+    # Preserve the old --lang behavior for scripts: it also supplies the Git default.
+    git_lang = args.git_lang or (args.lang if args.lang else old_git) or docs_lang
+    return docs_lang, chat_lang, git_lang
+
+
+def check_existing_claude(repo, args):
+    path = repo / "CLAUDE.md"
+    if not path.exists() or "@AGENTS.md" in path.read_text() or args.migrate_claude or args.keep_claude:
+        return
+    raise InitError(
+        "CLAUDE.md exists but does not import AGENTS.md; no files were changed. "
+        "Rerun with --migrate-claude, or --keep-claude to continue intentionally")
 
 
 def run_one(repo, args):
-    if args.migrate_claude and args.agent == "none":
+    check_existing_claude(repo, args)
+    requested_agent = args.agent or "auto"
+    if args.migrate_claude and requested_agent == "none":
         raise InitError("--migrate-claude needs an agent to merge CLAUDE.md into AGENTS.md; drop --agent none")
-    old_lang, old_git = saved_langs(repo)
-    lang = args.lang or old_lang or "pt"
-    git_lang = args.git_lang or (old_git if not args.lang else None) or lang
-    ch = plan(repo, lang, git_lang, args.tracked, args.hide_agent_files, args.migrate_claude)
+    docs_lang, chat_lang, git_lang = resolve_languages(repo, args)
+    ch = plan(repo, docs_lang, git_lang, chat_lang, args.tracked,
+              args.hide_agent_files, args.migrate_claude, args.keep_claude)
 
     if args.check:
         if ch.pending:
@@ -425,93 +538,228 @@ def run_one(repo, args):
     if args.dry_run:
         ch.diff()
         steps = ["ai-memory install-instructions"]
-        if args.agent != "none":
-            steps.append(f"{args.agent} to fill project sections")
+        if requested_agent != "none":
+            steps.append(f"{requested_agent} to fill project sections")
         if args.migrate_claude:
             steps.append("replace CLAUDE.md with the import stub if the agent succeeds")
         log("would also run: " + "; ".join(steps))
         return 0
 
+    agent = select_agent(requested_agent)
+    flagged = []
+    if agent != "none":
+        sections = generate_project_sections(repo, agent, docs_lang, args.migrate_claude, args.trust)
+        flagged = add_project_sections(ch, sections)
+    if args.migrate_claude:
+        ch.write(repo / "CLAUDE.md", CLAUDE_MD, "CLAUDE.md: replaced with the import stub")
+    if agent != "none" and ch.pending:
+        ch.diff()
     ch.apply()
     install_ai_memory(repo, args.full_memory, not args.no_skills)
-    if args.agent != "none":
-        try:
-            fill_with_agent(repo, args.agent, lang, args.migrate_claude, args.trust)
-        except InitError:
-            if args.migrate_claude:
-                log("CLAUDE.md: left untouched because the agent failed; it still lacks `@AGENTS.md`, rerun --migrate-claude")
-            raise
-    if args.migrate_claude:
-        (repo / "CLAUDE.md").write_text(CLAUDE_MD)
-        log("CLAUDE.md: replaced with the import stub")
+    if flagged:
+        log("REVIEW: the agent wrote lines that run commands, fetch URLs or touch permissions; "
+            "check they come from the project and not from injected text:")
+        for line in flagged:
+            log(f"  | {line.strip()}")
     log("done. Review with `git diff` / `git status`; nothing was committed.")
     return 0
 
 
 def run_rules(args):
-    if args.init:
-        seed_rules()
-    print(f"user rules dir: {user_rules_dir()}")
-    for lang in LANGS:
-        f = rules_file(lang)
-        print(f"{lang}: {f} ({'bundled' if f.parent == KIT / 'rules' else 'user'})")
+    scope = getattr(args, "scope", "global")
+    repo_arg = getattr(args, "repo", None)
+    if repo_arg and scope != "project":
+        raise InitError("--repo requires --scope project")
+    if scope == "project":
+        repo = git_root(Path(repo_arg or ".").expanduser().resolve())
+        created = []
+        if getattr(args, "rules_command", None) == "init":
+            created = seed_project_rules(repo)
+        print("Global baseline:")
+        for lang in LANGS:
+            f = rules_file(lang)
+            print(f"  {lang}: {f} ({'bundled' if f.parent == KIT / 'rules' else 'user'})")
+        print("Project overlay:")
+        for lang in LANGS:
+            f = project_rules_file(repo, lang)
+            print(f"  {lang}: {f} ({'project' if f.exists() else 'not created'})")
+        if created:
+            log("project rule overlays created")
+            log(f"apply them with: `agent-kit init {repo} --agent none`")
+    else:
+        if getattr(args, "init", False) or getattr(args, "rules_command", None) == "init":
+            seed_rules()
+        print(f"user rules dir: {user_rules_dir()}")
+        for lang in LANGS:
+            f = rules_file(lang)
+            print(f"{lang}: {f} ({'bundled' if f.parent == KIT / 'rules' else 'user'})")
     return 0
+
+
+def run_doctor(args):
+    checks = {
+        "git": shutil.which("git"),
+        "claude": shutil.which("claude"),
+        "codex": shutil.which("codex"),
+        "ai-memory": shutil.which("ai-memory"),
+    }
+    for name, path in checks.items():
+        print(f"{name}: {path or 'not found'}")
+    print(f"rules: {user_rules_dir()}")
+    if not checks["git"]:
+        raise InitError("git is required")
+    if not checks["claude"] and not checks["codex"]:
+        log("WARNING: no agent found; init still works with --agent none")
+    return 0
+
+
+def git_root(path):
+    if not path.is_dir():
+        raise InitError(f"{path} is not a directory")
+    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path,
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        raise InitError(f"{path} is not inside a Git repository")
+    return Path(r.stdout.strip()).resolve()
+
+
+def tracked_paths(repo, paths):
+    found = []
+    for path in paths:
+        r = subprocess.run(["git", "ls-files", "--error-unmatch", "--", path], cwd=repo,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if r.returncode == 0:
+            found.append(path)
+    return found
+
+
+def apply_profile(repo, args):
+    if args.profile == "upstream":
+        if args.tracked:
+            raise InitError("--profile upstream cannot be combined with --tracked")
+        if args.trust:
+            raise InitError("--profile upstream cannot be combined with --trust")
+        args.hide_agent_files = True
+        args.no_skills = True
+    elif args.profile == "own":
+        if args.hide_agent_files:
+            raise InitError("--profile own cannot be combined with --hide-agent-files")
+        args.tracked = True
+    elif args.hide_agent_files:
+        # The compatibility flag now fulfills its promise: all local artifacts stay hidden.
+        args.no_skills = True
+    if args.hide_agent_files:
+        tracked = tracked_paths(repo, ["AGENTS.md", "CLAUDE.md", ".claude/settings.local.json"])
+        if tracked:
+            names = ", ".join(tracked)
+            raise InitError(
+                f"upstream tracks {names}, so local changes cannot be hidden; no files were changed. "
+                "Use --profile own to modify tracked instructions, or continue without agent-kit")
 
 
 def run_init(args):
     target = Path(args.repo).expanduser().resolve()
     if args.all:
-        bad = [f for f, v in (("--lang", args.lang), ("--git-lang", args.git_lang), ("--agent", args.agent),
+        bad = [f for f, v in (("--lang", args.lang), ("--docs-lang", args.docs_lang),
+                              ("--chat-lang", args.chat_lang), ("--git-lang", args.git_lang),
+                              ("--profile", args.profile), ("--agent", args.agent),
                               ("--migrate-claude", args.migrate_claude), ("--full-memory", args.full_memory),
                               ("--tracked", args.tracked), ("--hide-agent-files", args.hide_agent_files),
-                              ("--no-skills", args.no_skills), ("--trust", args.trust)) if v]
+                              ("--no-skills", args.no_skills), ("--trust", args.trust),
+                              ("--keep-claude", args.keep_claude)) if v]
         if bad:
             raise InitError(f"--all only re-applies the deterministic part; not compatible with {', '.join(bad)}")
         if not target.is_dir():
             raise InitError(f"{target} is not a directory")
         return run_all(target, args)
-    if not (target / ".git").exists():
-        raise InitError(f"{target} is not a git repository root")
-    args.agent = args.agent or "claude"
+    target = git_root(target)
+    apply_profile(target, args)
     return run_one(target, args)
+
+
+def run_sync(args):
+    root = Path(args.root).expanduser().resolve()
+    if not root.is_dir():
+        raise InitError(f"{root} is not a directory")
+    return run_all(root, args)
 
 
 def build_parser():
     ap = argparse.ArgumentParser(prog="agent-kit", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--version", action="version", version=f"agent-kit {VERSION}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     ip = sub.add_parser("init", help="set up or update a repository (what `agent-init` runs)")
     ip.add_argument("repo", nargs="?", default=".", help="target repository, or the root to scan with --all (default: current dir)")
-    ip.add_argument("--lang", choices=LANGS, help="conversation and docs language (default: saved value, else pt)")
-    ip.add_argument("--git-lang", choices=LANGS, help="language of commits/issues/PRs (default: same as --lang)")
-    ip.add_argument("--agent", choices=["claude", "codex", "none"],
-                    help="who fills the project-specific sections (default: claude)")
+    ip.add_argument("--profile", choices=["own", "upstream"],
+                    help="safe defaults for your repository or a third-party clone")
+    ip.add_argument("--chat-lang", choices=LANGS, help="language agents use to talk with you")
+    ip.add_argument("--docs-lang", choices=LANGS, help="documentation and managed-rules language (default: saved value, else pt)")
+    ip.add_argument("--git-lang", choices=LANGS, help="language of commits/issues/PRs (default: saved value, else docs language)")
+    ip.add_argument("--lang", choices=LANGS, help="legacy alias for --chat-lang plus --docs-lang")
+    ip.add_argument("--agent", choices=["auto", "claude", "codex", "none"],
+                    help="who fills project sections (default: auto, Claude then Codex)")
     ip.add_argument("--full-memory", action="store_true", help="inline the full ai-memory guidance instead of --compact")
     ip.add_argument("--tracked", action="store_true", help="put .worktrees/ in the tracked .gitignore (your own repos) instead of .git/info/exclude")
     ip.add_argument("--hide-agent-files", action="store_true", help="also exclude AGENTS.md/CLAUDE.md locally (upstream forks)")
-    ip.add_argument("--migrate-claude", action="store_true", help="move an existing CLAUDE.md into AGENTS.md (via the agent) and replace it with the import stub")
+    claude_mode = ip.add_mutually_exclusive_group()
+    claude_mode.add_argument("--migrate-claude", action="store_true", help="move an existing CLAUDE.md into AGENTS.md (via the agent) and replace it with the import stub")
+    claude_mode.add_argument("--keep-claude", action="store_true", help="keep an independent existing CLAUDE.md intentionally")
     ip.add_argument("--no-skills", action="store_true", help="do not install ai-memory skills into the project")
     ip.add_argument("--trust", action="store_true", help="let the agent load the target repo's own Claude Code settings, hooks and MCP servers (your own repos only)")
     ip.add_argument("--all", action="store_true", help="re-apply the deterministic part to every agent-kit repo under REPO (keeps each repo's saved languages)")
-    ip.add_argument("--check", action="store_true", help="write nothing; list what is outdated and exit 1 if anything is")
-    ip.add_argument("--dry-run", action="store_true", help="write nothing; print the diff of what would change")
+    output = ip.add_mutually_exclusive_group()
+    output.add_argument("--check", action="store_true", help="write nothing; list what is outdated and exit 1 if anything is")
+    output.add_argument("--dry-run", action="store_true", help="write nothing; print the diff of what would change")
     ip.set_defaults(func=run_init)
 
+    sp = sub.add_parser("sync", help="re-apply deterministic rules to existing agent-kit repositories")
+    sp.add_argument("root", nargs="?", default=".", help="directory to scan (default: current dir)")
+    sync_output = sp.add_mutually_exclusive_group()
+    sync_output.add_argument("--check", action="store_true", help="write nothing; exit 1 if any repository needs attention")
+    sync_output.add_argument("--dry-run", action="store_true", help="write nothing; print the diffs")
+    sp.set_defaults(func=run_sync)
+
     rp = sub.add_parser("rules", help="show which rules files the managed block is built from")
-    rp.add_argument("--init", action="store_true", help="copy the bundled rules into the user rules dir (never overwrites)")
-    rp.set_defaults(func=run_rules)
+    rp.add_argument("--init", action="store_true", help="legacy alias for `rules init`")
+    rp.set_defaults(func=run_rules, scope="global", repo=None)
+    rules_sub = rp.add_subparsers(dest="rules_command")
+    rules_show = rules_sub.add_parser("show", help="show the active rule files")
+    rules_show.add_argument("--scope", choices=["global", "project"], default="global",
+                            help="global personal baseline (default) or tracked project overlay")
+    rules_show.add_argument("--repo", help="target repository; requires --scope project")
+    rules_show.set_defaults(func=run_rules)
+    rules_init = rules_sub.add_parser("init", help="seed rule files without overwriting")
+    rules_init.add_argument("--scope", choices=["global", "project"], default="global",
+                            help="global personal baseline (default) or tracked project overlay")
+    rules_init.add_argument("--repo", help="target repository; requires --scope project")
+    rules_init.set_defaults(func=run_rules)
+    rules_add = rules_sub.add_parser("add", help="have a local agent add a rule in every language")
+    rules_add.add_argument("rule", help="the rule, in any language")
+    rules_add.add_argument("--agent", choices=["auto", "claude", "codex"], default="auto")
+    rules_add.add_argument("--scope", choices=["global", "project"], default="global",
+                           help="global personal baseline (default) or tracked project overlay")
+    rules_add.add_argument("--repo", help="target repository; requires --scope project")
+    rules_add.add_argument("--dry-run", action="store_true", help="print the diff, write nothing")
+    rules_add.set_defaults(func=run_add_rule)
 
     ap_add = sub.add_parser("add-rule", help="have a local agent add a rule to your rules files (all languages)")
     ap_add.add_argument("rule", help="the rule, in any language, e.g. \"never push without asking\"")
-    ap_add.add_argument("--agent", choices=["claude", "codex"], default="claude", help="local agent CLI to use (default: claude)")
+    ap_add.add_argument("--agent", choices=["auto", "claude", "codex"], default="auto",
+                        help="local agent CLI to use (default: auto, Claude then Codex)")
+    ap_add.add_argument("--scope", choices=["global", "project"], default="global",
+                        help="global personal baseline (default) or tracked project overlay")
+    ap_add.add_argument("--repo", help="target repository; requires --scope project")
     ap_add.add_argument("--dry-run", action="store_true", help="print the diff, write nothing")
     ap_add.set_defaults(func=run_add_rule)
+
+    sub.add_parser("doctor", help="check required and optional local tools").set_defaults(func=run_doctor)
     return ap
 
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    if Path(sys.argv[0]).name == "agent-init":
+    if Path(sys.argv[0]).name == "agent-init" and argv != ["--version"]:
         argv = ["init", *argv]
     args = build_parser().parse_args(argv)
     try:

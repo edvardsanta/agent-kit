@@ -1,6 +1,6 @@
 # AGENTS.md
 
-<!-- agent-kit:start lang=en git-lang=en -->
+<!-- agent-kit:start docs-lang=en chat-lang=en git-lang=en -->
 ## Default rules (agent-kit)
 
 This block is managed by agent-kit and replaced on every run. Do not edit between
@@ -9,7 +9,8 @@ the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and
 
 ### Language
 
-- Talk and write documentation in English.
+- Talk with the user in English.
+- Write documentation in English.
 - Commits, branches, issues and PRs in English.
 
 ### Commits and PRs
@@ -42,7 +43,8 @@ the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and
 ## Overview
 
 `agent-kit` is a personal CLI that standardizes `AGENTS.md` / `CLAUDE.md` across repositories.
-Its subcommands are `init` (also installed as `agent-init`), `rules` and `add-rule`. `init` has two parts:
+Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules` and `doctor`.
+`add-rule` and `init --all` are compatibility aliases. `init` has two parts:
 - A deterministic part: the managed rules block, the `CLAUDE.md` import stub, the `.worktrees/` ignore entry, turning off Claude Code attribution, and ai-memory routing.
 - An optional generative part: `claude -p` or `codex exec` reads the repo without changing anything and prints the project sections, and agent-kit writes them into `AGENTS.md`.
 
@@ -50,7 +52,8 @@ Its subcommands are `init` (also installed as `agent-init`), `rules` and `add-ru
 
 - `bin/agent-kit`: the whole CLI, a single stdlib-only Python 3 script (no `.py` extension).
 - `bin/agent-init`: symlink to `agent-kit`; `main()` prepends `init` when invoked under that name.
-- `rules/en.md`, `rules/pt.md`: bundled default body of the managed block, one file per language.
+- `rules/en.md`, `rules/pt.md`: bundled global baseline for the managed block. A target repo may
+  add tracked overlays in `.agent-kit/rules/<lang>.md`.
 - `prompts/fill.md`: prompt for the project sections. `prompts/migrate.md` is appended to it for
   `--migrate-claude`, and `prompts/add-rule.md` is used by `add-rule`.
 - `tests/test_agent_init.py`: unittest suite; loads `bin/agent-kit` through `SourceFileLoader`.
@@ -63,23 +66,27 @@ Its subcommands are `init` (also installed as `agent-init`), `rules` and `add-ru
 - `make install`: symlinks `bin/agent-kit` as both `agent-kit` and `agent-init` into
   `$(PREFIX)/bin` (default `~/.local`).
 - To run without writing anything: `bin/agent-kit init <repo> --dry-run` prints the diff, `--check`
-  exits 1 if anything is outdated, and `bin/agent-kit add-rule "..." --dry-run` shows the rule diff.
+  exits 1 if anything is outdated, and `bin/agent-kit rules add "..." --dry-run` shows the rule diff.
 
 ## Conventions
 
-- Every file write goes through `Changes` (`read`/`write`/`apply`/`diff`), so the same plan
-  serves normal runs, `--dry-run` and `--check`. Do not write files directly in `ensure_*` helpers.
+- Repository initialization writes go through `Changes` (`read`/`write`/`apply`/`diff`), so the
+  same plan serves normal runs, `--dry-run` and `--check`. Do not write files directly in
+  `ensure_*` helpers.
 - `plan()` composes the deterministic steps (`ensure_agents_md`, `ensure_claude_md`,
   `ensure_ignored`, `ensure_no_coauthor`); keep each step idempotent.
 - User-facing failures raise `InitError`, which prints `agent-kit: error: ...` and exits 2. Progress
   goes through `log()` with the `[agent-kit]` prefix.
 - Each subcommand is a `run_<name>(args)` wired in `build_parser()` via `set_defaults(func=...)`.
-- Rules are resolved by `rules_file()`: `<lang>.md` in `user_rules_dir()`, else bundled `rules/<lang>.md`.
-  `user_rules_dir()` is `$AGENT_KIT_RULES` if set, else `$XDG_CONFIG_HOME` (or `~/.config`) + `/agent-kit/rules`.
-- `add-rule` checks the agent's answer in `parse_rules_answer` before writing anything: every
-  language present, placeholders kept, first heading kept.
+- Global rules are resolved by `rules_file()`: `<lang>.md` in `user_rules_dir()`, else bundled
+  `rules/<lang>.md`. `user_rules_dir()` is `$AGENT_KIT_RULES` if set, else `$XDG_CONFIG_HOME`
+  (or `~/.config`) + `/agent-kit/rules`. Project overlays come from `.agent-kit/rules/<lang>.md`.
+- `rules add` checks the agent's answer in `parse_rules_answer` before writing anything: every
+  language present, placeholders kept, first heading kept. `--scope project` writes an additive
+  tracked overlay; global remains the default for backward compatibility.
 - How the agent fills `AGENTS.md`:
-  - The agent never edits files. `fill_with_agent` runs it read-only:
+  - The agent never edits files. `generate_project_sections` runs it read-only before the pending
+    repository changes are applied:
     - claude gets `--tools`/`--allowedTools` limited to Read/Glob/Grep and read-only git/ls commands.
     - codex runs with `--sandbox read-only -o <file>`.
   - Unless `--trust` is given, claude also gets `--setting-sources user --strict-mcp-config`, so the
@@ -89,12 +96,13 @@ Its subcommands are `init` (also installed as `agent-init`), `rules` and `add-ru
   - `split_agents_md` replaces only the text between the agent-kit end marker and the ai-memory start marker.
   - Added lines that match `SUSPICIOUS_RE` (URLs, curl/sudo, hooks, permissions, tokens…) are
     logged under `REVIEW:` after writing.
-- The managed block's start marker stores `lang=` and `git-lang=`, which are read back on
-  rerun (`START_RE`, `saved_langs`). Never write a literal marker elsewhere in `AGENTS.md`.
-- Templates use `{{LANG_NAME}}` / `{{GIT_LANG_NAME}}` placeholders, replaced from `LANGS`.
+- The managed block's start marker stores `docs-lang=`, `chat-lang=` and `git-lang=`, read by
+  `saved_languages`. Legacy `lang=` markers remain readable. Never write a literal marker elsewhere.
+- Templates use `{{CHAT_LANG_NAME}}`, `{{DOCS_LANG_NAME}}` and `{{GIT_LANG_NAME}}`; legacy
+  personal templates using `{{LANG_NAME}}` work when chat and docs share a language.
 - `rules/en.md` and `rules/pt.md` must stay in sync: change both when editing a rule.
-- `--all` only re-applies the deterministic part and rejects per-repo flags (including `--trust`).
-  When you add a per-repo flag, add it to that rejection list in `run_init`.
+- `sync` and the compatibility `--all` path only re-apply deterministic changes. `--all` rejects
+  per-repo flags; add new per-repo flags to that rejection list in `run_init`.
 - Testing rules:
   - Tests point `AGENT_KIT_RULES` at a temp dir, so the user's real rules dir is never read.
   - Tests that call the CLI set `PATH` to a temp `bin` dir that holds only `git` plus any fake stubs
@@ -111,7 +119,8 @@ Its subcommands are `init` (also installed as `agent-init`), `rules` and `add-ru
 - The tool never commits; it only writes files. Keep it that way.
 - `resolve_exe` resolves asdf shims from `$HOME` because the target repo's
   `.tool-versions` may pin a different version.
-- Personal rules live outside the checkout; `agent-kit rules --init` seeds them and never overwrites.
+- Personal global rules live outside the checkout; `agent-kit rules init` seeds them and never
+  overwrites. Project overlays live in `.agent-kit/rules/` and are intended to be tracked.
 - `--migrate-claude` replaces `CLAUDE.md` with the stub only after the agent's sections were parsed and
   written. If the agent fails or its answer is rejected, `CLAUDE.md` is left untouched and the run exits 2.
 
