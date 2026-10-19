@@ -30,6 +30,15 @@ entre os marcadores; mude a regra nas suas regras do agent-kit (veja `agent-kit 
 - Depois do merge, `git worktree remove .worktrees/<nome>` e `git worktree prune`.
 - Para uma mudança rápida na branch atual, não crie worktree.
 
+### Procedimentos
+
+- Use diretórios temporários apenas para artefatos descartáveis de investigação.
+- Guarde fluxos reutilizáveis do projeto em `.agent-kit/procedures/`, não em `/tmp`, scratchpads
+  nem diretórios específicos de um agente.
+- Trate procedimentos como documentação versionada do projeto, compartilhada por usuários e agentes.
+- Crie ou atualize um procedimento somente quando o usuário pedir explicitamente para preservá-lo.
+- Verifique se existe um procedimento relevante antes de executar um fluxo documentado.
+
 ### Memória
 
 - Use o ai-memory para continuidade entre sessões (bloco de roteamento abaixo).

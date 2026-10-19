@@ -33,6 +33,15 @@ the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and
 - After the merge, `git worktree remove .worktrees/<name>` and `git worktree prune`.
 - For a quick change on the current branch, do not create a worktree.
 
+### Procedures
+
+- Use temporary directories only for disposable investigation artifacts.
+- Store reusable project workflows in `.agent-kit/procedures/`, not in `/tmp`, scratchpads
+  or agent-specific directories.
+- Treat procedures as version-controlled project documentation shared by users and all agents.
+- Create or update a procedure only when the user explicitly asks to preserve it.
+- Check for a relevant procedure before performing a documented workflow.
+
 ### Memory
 
 - Use ai-memory for cross-session continuity (routing block below).
@@ -43,7 +52,8 @@ the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and
 ## Overview
 
 `agent-kit` is a personal CLI that standardizes `AGENTS.md` / `CLAUDE.md` across repositories.
-Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules` and `doctor`.
+Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules`, `procedures`
+and `doctor`.
 `add-rule` and `init --all` are compatibility aliases. `init` has two parts:
 - A deterministic part: the managed rules block, the `CLAUDE.md` import stub, the `.worktrees/` ignore entry, turning off Claude Code attribution, and ai-memory routing.
 - An optional generative part: `claude -p` or `codex exec` reads the repo without changing anything and prints the project sections, and agent-kit writes them into `AGENTS.md`.
@@ -54,6 +64,8 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
 - `bin/agent-init`: symlink to `agent-kit`; `main()` prepends `init` when invoked under that name.
 - `rules/en.md`, `rules/pt.md`: bundled global baseline for the managed block. A target repo may
   add tracked overlays in `.agent-kit/rules/<lang>.md`.
+- `.agent-kit/procedures/` in a target repository contains tracked, reusable workflows shared by
+  users and all agents; `procedures init` creates its README without overwriting it later.
 - `prompts/fill.md`: prompt for the project sections. `prompts/migrate.md` is appended to it for
   `--migrate-claude`, and `prompts/add-rule.md` is used by `add-rule`.
 - `tests/test_agent_init.py`: unittest suite; loads `bin/agent-kit` through `SourceFileLoader`.
@@ -84,6 +96,8 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
 - `rules add` checks the agent's answer in `parse_rules_answer` before writing anything: every
   language present, placeholders kept, first heading kept. `--scope project` writes an additive
   tracked overlay; global remains the default for backward compatibility.
+- `procedures path/init/list/show` resolve the Git root from any subdirectory. Procedure paths
+  must stay inside `.agent-kit/procedures/`, and initialization never overwrites its README.
 - How the agent fills `AGENTS.md`:
   - The agent never edits files. `generate_project_sections` runs it read-only before the pending
     repository changes are applied:
@@ -121,6 +135,7 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
   `.tool-versions` may pin a different version.
 - Personal global rules live outside the checkout; `agent-kit rules init` seeds them and never
   overwrites. Project overlays live in `.agent-kit/rules/` and are intended to be tracked.
+- Project procedures live in `.agent-kit/procedures/`; temporary scratch work does not.
 - `--migrate-claude` replaces `CLAUDE.md` with the stub only after the agent's sections were parsed and
   written. If the agent fails or its answer is rejected, `CLAUDE.md` is left untouched and the run exits 2.
 
