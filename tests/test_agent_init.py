@@ -114,6 +114,7 @@ class PlanTest(TempDir):
         exclude = (repo / ".git/info/exclude").read_text().splitlines()
         self.assertIn(".worktrees/", exclude)
         self.assertIn(".claude/settings.local.json", exclude)
+        self.assertIn(".agent-kit/procedures/", (repo / "AGENTS.md").read_text())
         self.assertEqual(ai.plan(repo, "en", "en").pending, {})
 
     def test_tracked_gitignore_entry_counts(self):
@@ -418,6 +419,61 @@ class AddRuleTest(TempDir):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Never force push", (repo / ".agent-kit" / "rules" / "en.md").read_text())
         self.assertFalse(self.rules.exists())
+
+
+class ProceduresTest(TempDir):
+    def test_path_uses_repository_root_from_a_subdirectory(self):
+        repo = self.git_repo()
+        nested = repo / "nested"
+        nested.mkdir()
+        r = self.run_kit("procedures", "path", nested)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), str(repo / ".agent-kit" / "procedures"))
+
+    def test_init_uses_saved_docs_language_and_is_idempotent(self):
+        repo = self.git_repo()
+        self.run_cli(repo, "--docs-lang", "en", "--agent", "none")
+        check = self.run_kit("procedures", "init", repo, "--check")
+        self.assertEqual(check.returncode, 1)
+        r = self.run_kit("procedures", "init", repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        readme = repo / ".agent-kit" / "procedures" / "README.md"
+        self.assertIn("# Project procedures", readme.read_text())
+        self.assertEqual(self.run_kit("procedures", "init", repo, "--check").returncode, 0)
+        readme.write_text("# Mine\n")
+        self.assertEqual(self.run_kit("procedures", "init", repo).returncode, 0)
+        self.assertEqual(readme.read_text(), "# Mine\n")
+
+    def test_init_dry_run_writes_nothing(self):
+        repo = self.git_repo()
+        r = self.run_kit("procedures", "init", repo, "--docs-lang", "en", "--dry-run")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Project procedures", r.stdout)
+        self.assertFalse((repo / ".agent-kit").exists())
+
+    def test_list_and_show_procedures(self):
+        repo = self.git_repo()
+        self.run_kit("procedures", "init", repo)
+        procedures = repo / ".agent-kit" / "procedures"
+        (procedures / "release.md").write_text("# Release\n")
+        (procedures / "deploy").mkdir()
+        (procedures / "deploy" / "staging.md").write_text("# Staging\n")
+        listed = self.run_kit("procedures", "list", repo)
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        self.assertEqual(listed.stdout.splitlines(), ["deploy/staging.md", "release.md"])
+        shown = self.run_kit("procedures", "show", "release", repo)
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        self.assertEqual(shown.stdout, "# Release\n")
+
+    def test_show_rejects_paths_outside_procedures(self):
+        repo = self.git_repo()
+        self.run_kit("procedures", "init", repo)
+        r = self.run_kit("procedures", "show", "../../AGENTS.md", repo)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("cannot leave", r.stderr)
+        r = self.run_kit("procedures", "show", "notes.txt", repo)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("Markdown", r.stderr)
 
 
 class FillTest(TempDir):

@@ -9,6 +9,7 @@ Generative part (optional): claude or codex fills the project-specific sections.
 
 `agent-kit sync`: re-apply deterministic rules to existing agent-kit repositories.
 `agent-kit rules`: show, seed or update the rules used for the managed block.
+`agent-kit procedures`: initialize and inspect shared project procedures.
 """
 import argparse
 import difflib
@@ -34,6 +35,26 @@ SUSPICIOUS_RE = re.compile(
 LANGS = {"pt": "português do Brasil", "en": "English"}
 SKIP_DIRS = {".worktrees", "node_modules", ".venv", "venv", "vendor", "target", "build", "dist"}
 PROJECT_RULE_HEADINGS = {"en": "## Project rules\n", "pt": "## Regras do projeto\n"}
+PROCEDURES_README = {
+    "en": """# Project procedures
+
+Reusable project workflows shared by users and all agents.
+
+- Keep one procedure per Markdown file.
+- Record prerequisites, ordered steps, verification and rollback where relevant.
+- Do not store secrets, credentials or disposable scratch work here.
+- Create or update procedures only when the user explicitly asks to preserve them.
+""",
+    "pt": """# Procedimentos do projeto
+
+Fluxos reutilizáveis do projeto, compartilhados por usuários e todos os agentes.
+
+- Mantenha um procedimento por arquivo Markdown.
+- Registre pré-requisitos, passos ordenados, verificação e reversão quando relevante.
+- Não guarde segredos, credenciais nem rascunhos descartáveis aqui.
+- Crie ou atualize procedimentos somente quando o usuário pedir explicitamente para preservá-los.
+""",
+}
 
 CLAUDE_MD = """@AGENTS.md
 
@@ -103,6 +124,15 @@ def rules_file(lang):
 
 def project_rules_file(repo, lang):
     return repo / ".agent-kit" / "rules" / f"{lang}.md"
+
+
+def procedures_dir(repo):
+    directory = repo / ".agent-kit" / "procedures"
+    try:
+        directory.resolve().relative_to(repo.resolve())
+    except ValueError:
+        raise InitError(f"{directory} resolves outside the repository")
+    return directory
 
 
 def seed_rules():
@@ -596,6 +626,77 @@ def run_rules(args):
     return 0
 
 
+def procedure_path(directory, name):
+    relative = Path(name)
+    if relative.name in ("", ".", ".."):
+        raise InitError("procedure name must identify a Markdown file")
+    if relative.suffix == "":
+        relative = relative.with_suffix(".md")
+    elif relative.suffix.lower() != ".md":
+        raise InitError("procedures must be Markdown files")
+    if relative.is_absolute():
+        raise InitError("procedure names must be relative to .agent-kit/procedures")
+    candidate = (directory / relative).resolve()
+    try:
+        candidate.relative_to(directory.resolve())
+    except ValueError:
+        raise InitError("procedure names cannot leave .agent-kit/procedures")
+    return candidate
+
+
+def run_procedures(args):
+    repo = git_root(Path(args.repo).expanduser().resolve())
+    directory = procedures_dir(repo)
+    command = args.procedures_command
+
+    if command == "path":
+        print(directory)
+        return 0
+
+    if command == "init":
+        docs_lang, _, _ = saved_languages(repo)
+        lang = args.docs_lang or docs_lang or "pt"
+        readme = directory / "README.md"
+        ch = Changes(repo)
+        if not readme.exists():
+            ch.write(readme, PROCEDURES_README[lang], "procedures: created .agent-kit/procedures/README.md")
+        if args.check:
+            if ch.pending:
+                log("procedures not initialized")
+                return 1
+            log("procedures initialized")
+            return 0
+        if args.dry_run:
+            ch.diff()
+            return 0
+        if not ch.pending:
+            log("procedures already initialized")
+            return 0
+        ch.apply()
+        log("add Markdown procedure files to .agent-kit/procedures/ and commit them with the project")
+        return 0
+
+    if not directory.is_dir():
+        raise InitError("project procedures are not initialized; run `agent-kit procedures init`")
+
+    if command == "list":
+        files = sorted(path.relative_to(directory) for path in directory.rglob("*.md")
+                       if path.name != "README.md")
+        if not files:
+            log("no project procedures found")
+            return 0
+        for path in files:
+            print(path.as_posix())
+        return 0
+
+    path = procedure_path(directory, args.name)
+    if not path.is_file():
+        raise InitError(f"procedure not found: {args.name}")
+    text = path.read_text()
+    print(text, end="" if text.endswith("\n") else "\n")
+    return 0
+
+
 def run_doctor(args):
     checks = {
         "git": shutil.which("git"),
@@ -742,6 +843,29 @@ def build_parser():
     rules_add.add_argument("--repo", help="target repository; requires --scope project")
     rules_add.add_argument("--dry-run", action="store_true", help="print the diff, write nothing")
     rules_add.set_defaults(func=run_add_rule)
+
+    pp = sub.add_parser("procedures", help="manage AI-agnostic procedures stored with the project")
+    procedures_sub = pp.add_subparsers(dest="procedures_command", required=True)
+    procedures_path = procedures_sub.add_parser("path", help="print the project procedures directory")
+    procedures_path.add_argument("repo", nargs="?", default=".", help="target repository")
+    procedures_path.set_defaults(func=run_procedures)
+    procedures_init = procedures_sub.add_parser("init", help="create the project procedures directory")
+    procedures_init.add_argument("repo", nargs="?", default=".", help="target repository")
+    procedures_init.add_argument("--docs-lang", choices=LANGS,
+                                 help="README language (default: saved docs language, else pt)")
+    procedures_output = procedures_init.add_mutually_exclusive_group()
+    procedures_output.add_argument("--check", action="store_true",
+                                   help="write nothing; exit 1 if procedures are not initialized")
+    procedures_output.add_argument("--dry-run", action="store_true",
+                                   help="write nothing; print the README diff")
+    procedures_init.set_defaults(func=run_procedures)
+    procedures_list = procedures_sub.add_parser("list", help="list project procedure files")
+    procedures_list.add_argument("repo", nargs="?", default=".", help="target repository")
+    procedures_list.set_defaults(func=run_procedures)
+    procedures_show = procedures_sub.add_parser("show", help="print a project procedure")
+    procedures_show.add_argument("name", help="procedure name or relative Markdown path")
+    procedures_show.add_argument("repo", nargs="?", default=".", help="target repository")
+    procedures_show.set_defaults(func=run_procedures)
 
     ap_add = sub.add_parser("add-rule", help="have a local agent add a rule to your rules files (all languages)")
     ap_add.add_argument("rule", help="the rule, in any language, e.g. \"never push without asking\"")

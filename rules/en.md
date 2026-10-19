@@ -30,6 +30,15 @@ the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and
 - After the merge, `git worktree remove .worktrees/<name>` and `git worktree prune`.
 - For a quick change on the current branch, do not create a worktree.
 
+### Procedures
+
+- Use temporary directories only for disposable investigation artifacts.
+- Store reusable project workflows in `.agent-kit/procedures/`, not in `/tmp`, scratchpads
+  or agent-specific directories.
+- Treat procedures as version-controlled project documentation shared by users and all agents.
+- Create or update a procedure only when the user explicitly asks to preserve it.
+- Check for a relevant procedure before performing a documented workflow.
+
 ### Memory
 
 - Use ai-memory for cross-session continuity (routing block below).

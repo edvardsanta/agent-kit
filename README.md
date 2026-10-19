@@ -11,7 +11,7 @@ agent-kit doctor      # show which optional tools are available
 agent-kit --version
 ```
 
-`agent-init` is an alias for `agent-kit init`; every example below works with either.
+`agent-init` is an alias for `agent-kit init`. Use `agent-kit` for the other subcommands.
 
 ## Usage
 
@@ -28,6 +28,7 @@ agent-init . --dry-run                              # print the diff, write noth
 agent-init . --check                                # exit 1 if anything is outdated
 agent-kit sync ~/repos --check                      # list repos needing an update/migration
 agent-kit sync ~/repos                              # re-apply rules to all managed repos
+agent-kit procedures init                           # create shared project procedures
 ```
 
 `--lang` remains as a compatibility alias for `--chat-lang` plus `--docs-lang`.
@@ -38,7 +39,7 @@ Claude settings because `.git/info/exclude` cannot hide changes to tracked files
 ## What it does
 
 1. Inserts/updates the `<!-- agent-kit:start -->` block in `AGENTS.md` (rules in `rules/pt.md`, `rules/en.md`):
-   language, no co-authorship, commit by batch, worktrees in `.worktrees/`, ai-memory usage.
+   language, no co-authorship, commit by batch, worktrees, project procedures and ai-memory usage.
 2. `CLAUDE.md` becomes just `@AGENTS.md`.
 3. `.worktrees/` goes into `.git/info/exclude` (use `--tracked` for the versioned `.gitignore`).
 4. `.claude/settings.local.json` with empty `attribution` (turns off Claude Code's Co-Authored-By).
@@ -119,6 +120,24 @@ placeholders and first heading kept) before writing to your rules dir, and print
 
 Global rule editing remains available through `agent-kit rules add "..."`; `agent-kit add-rule`
 is its compatibility alias.
+
+## Project procedures
+
+Reusable workflows belong to the project rather than to Claude, Codex or a temporary scratchpad.
+agent-kit uses the tracked `.agent-kit/procedures/` directory so every user and agent sees the
+same procedures while agent-specific configuration remains separate.
+
+```bash
+agent-kit procedures init              # create README.md without overwriting it later
+agent-kit procedures path              # print the absolute directory path
+agent-kit procedures list              # list Markdown procedures
+agent-kit procedures show release      # print release.md
+```
+
+`procedures init` uses the repository's saved documentation language, supports `--check` and
+`--dry-run`, and can run from any repository subdirectory. Keep one workflow per Markdown file.
+Temporary directories remain appropriate for disposable investigation artifacts; create or update
+a durable procedure only when the user explicitly asks to preserve it.
 
 ## Changing a rule for every project
 
