@@ -6,7 +6,8 @@ entre os marcadores; mude a regra nas suas regras do agent-kit (veja `agent-kit 
 
 ### Idioma
 
-- Converse e escreva a documentação em {{LANG_NAME}}.
+- Converse com o usuário em {{CHAT_LANG_NAME}}.
+- Escreva a documentação em {{DOCS_LANG_NAME}}.
 - Commits, branches, issues e PRs em {{GIT_LANG_NAME}}.
 
 ### Commits e PRs

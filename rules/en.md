@@ -6,7 +6,8 @@ the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and
 
 ### Language
 
-- Talk and write documentation in {{LANG_NAME}}.
+- Talk with the user in {{CHAT_LANG_NAME}}.
+- Write documentation in {{DOCS_LANG_NAME}}.
 - Commits, branches, issues and PRs in {{GIT_LANG_NAME}}.
 
 ### Commits and PRs
