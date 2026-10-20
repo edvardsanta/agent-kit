@@ -39,3 +39,42 @@ jobs:
       - run: python -m pip wheel . --no-deps --wheel-dir wheelhouse
       - run: python -m pip install --no-index --find-links wheelhouse agent-kit
       - run: python tests/package_smoke.py
+
+  installer:
+    name: Installer (${{ matrix.os }}, ${{ matrix.installer }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        installer: [venv, pipx]
+    env:
+      AGENT_KIT_SOURCE: ${{ github.workspace }}
+      AGENT_KIT_INSTALLER: ${{ matrix.installer }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - if: runner.os != 'Windows'
+        run: |
+          sh install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          agent-kit --version
+          agent-init --help > /dev/null
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./install.ps1
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + $env:Path
+          agent-kit --version
+          agent-init --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      # Windows PowerShell 5.1 is what `irm | iex` often runs in; it also covers reinstalling
+      - if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          ./install.ps1
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + $env:Path
+          agent-kit --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }

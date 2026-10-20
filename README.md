@@ -11,35 +11,37 @@ the [`0.1 migration notes`](docs/migration-0.1.md).
 Requirements: Python 3.10+ and `git` on `PATH`. There are no other runtime dependencies.
 `claude`, `codex` and `ai-memory` are optional; `agent-kit doctor` shows which ones it finds.
 
-The current pre-release is
-[`v0.1.0.dev0`](https://github.com/edvardsanta/agent-kit/releases/tag/v0.1.0.dev0). Install it
-with [pipx](https://pipx.pypa.io/), which puts `agent-kit` and `agent-init` on `PATH` in an
-isolated environment.
-
 Linux and macOS:
 
 ```bash
-python3 -m pip install --user pipx && python3 -m pipx ensurepath   # once, then reopen the shell
-pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.0.dev0
+curl -fsSL https://raw.githubusercontent.com/edvardsanta/agent-kit/main/install.sh | sh
 ```
 
 Windows (PowerShell; requires [Git for Windows](https://git-scm.com/download/win)):
 
 ```powershell
-py -m pip install --user pipx; py -m pipx ensurepath               # once, then reopen the terminal
-pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.0.dev0
+irm https://raw.githubusercontent.com/edvardsanta/agent-kit/main/install.ps1 | iex
 ```
 
-Check the installation:
+The installers check Python and `git`, install the most recent release
+([`v0.1.0.dev0`](https://github.com/edvardsanta/agent-kit/releases/tag/v0.1.0.dev0) today), and
+use `uv tool` or `pipx` when available, else a private virtualenv under
+`~/.local/share/agent-kit` (Windows: `%LOCALAPPDATA%\agent-kit`, whose `bin` is added to the user
+`PATH`). Run the same command again to upgrade. Set `AGENT_KIT_VERSION=<tag>` to pin a release,
+or `AGENT_KIT_INSTALLER=uv|pipx|venv` to choose the method.
+
+Then check the installation:
 
 ```bash
 agent-kit --version
 agent-kit doctor
 ```
 
-Upgrade to a newer tag with `pipx install --force git+https://github.com/edvardsanta/agent-kit@<tag>`,
-and remove it with `pipx uninstall agent-kit`. Without pipx, `python -m pip install` accepts the same
-`git+https://...` URL, but then Python's scripts directory must be on `PATH`.
+If you prefer to install it yourself, any Python tool installer works with the tag URL:
+`pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.0.dev0` (or `uv tool install`).
+Uninstall with the same tool (`pipx uninstall agent-kit`, `uv tool uninstall agent-kit`); for the
+private virtualenv, delete its directory and the `agent-kit`/`agent-init` entries in
+`~/.local/bin` (Windows: `%LOCALAPPDATA%\agent-kit`).
 
 `agent-init` is an alias for `agent-kit init`; use `agent-kit` for the other subcommands. The
 installed package includes its bundled rules and prompts, so it does not depend on a source
@@ -55,8 +57,9 @@ make test                       # stdlib unittest
 ```
 
 CI runs the unit suite on Linux and macOS and builds, installs, and smoke-tests the wheel on Linux,
-macOS, and Windows with the oldest and newest supported Python versions. On Windows only the
-installed-package smoke test runs, so agent-backed commands are less exercised there.
+macOS, and Windows with the oldest and newest supported Python versions, and runs both installers
+on all three systems. On Windows the unit suite does not run, so agent-backed commands are less
+exercised there.
 
 ## Usage
 
