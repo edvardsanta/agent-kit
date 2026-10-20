@@ -10,9 +10,11 @@ agent-kit prepares repositories for AI coding agents without depending on one ag
 1. initializes and synchronizes repository instructions;
 2. manages personal and project rules;
 3. manages reusable project procedures; and
-4. diagnoses the local tools needed for those operations.
+4. diagnoses the local tools needed for those operations; and
+5. removes its own installation.
 
-It is not an agent runtime, task runner, memory database, plugin system, or package manager.
+It is not an agent runtime, task runner, memory database, plugin system, or package manager: it
+never installs or removes other tools.
 Integrations may be invoked by agent-kit, but their internal features must not leak into unrelated
 commands.
 
@@ -32,6 +34,7 @@ agent-kit procedures list
 agent-kit procedures show NAME
 agent-kit procedures path
 agent-kit doctor
+agent-kit uninstall
 ```
 
 Rules and procedures are plural command families. Actions below them are singular verbs. New
@@ -54,6 +57,11 @@ project scope requires `--scope project` and accepts `--repo PATH`.
 supported.
 
 `doctor` performs read-only diagnostics. It never repairs or installs anything.
+
+`uninstall` removes agent-kit itself. It recognizes installations made by `uv tool`, `pipx`, or the
+`install.sh` / `install.ps1` virtualenv and refuses anything else. It asks for confirmation, or
+requires `--yes` when input is not interactive; `--dry-run` prints the plan. Personal rules are kept
+unless `--purge` is given. On Windows, the files are removed by a detached process after exit.
 
 ## Interactive and non-interactive use
 
