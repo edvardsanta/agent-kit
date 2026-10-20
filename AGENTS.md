@@ -79,13 +79,17 @@ and `doctor`.
   it for `--migrate-claude`; `add-rule.md` and `add-procedure.md` drive generative resource creation.
 - `pyproject.toml`: setuptools package metadata, package-data declarations, and the `agent-kit` /
   `agent-init` cross-platform console entry points.
+- `.github/workflows/ci.yml`: unit-test matrix on Linux/macOS and installed-wheel smoke matrix on
+  Linux, macOS and Windows.
 - `tests/test_agent_init.py`: unittest suite; loads `bin/agent-kit` through `SourceFileLoader`.
 
 ## Environment and commands
 
-- No dependencies: Python 3 stdlib plus `git`. There is no CI, linter or formatter config in the repo.
+- No runtime dependencies: Python 3.10+ stdlib plus `git`. There is no linter or formatter config.
 - `make test`: runs `python3 -m unittest discover -s tests`.
 - Single test (fast): `python3 -m unittest discover -s tests -k <test_name>`.
+- Installed-wheel smoke test: build/install the wheel, then run `python tests/package_smoke.py`
+  outside the checkout; CI performs this on Linux, macOS, and Windows.
 - `pipx install .` builds and installs both console commands on Linux, macOS, or Windows.
 - `make install`: Unix-only checkout shortcut that symlinks `bin/agent-kit` as both commands into
   `$(PREFIX)/bin` (default `~/.local`).

@@ -21,6 +21,9 @@ The Python package installs both console commands and includes its bundled rules
 installed wheel does not depend on the source checkout. On Windows, ensure the Python or pipx
 scripts directory is on `PATH`.
 
+CI runs the unit suite on Linux and macOS and builds, installs, and smoke-tests the wheel on Linux,
+macOS, and Windows with the oldest and newest supported Python versions.
+
 ## Usage
 
 ```bash
