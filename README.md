@@ -34,8 +34,6 @@ agent-kit sync ~/repos                              # re-apply rules to all mana
 agent-kit procedures init                           # create shared project procedures
 ```
 
-`--lang` remains as a compatibility alias for `--chat-lang` plus `--docs-lang`.
-`init --all`, `--hide-agent-files`, `rules --init`, and `add-rule` also remain supported.
 The upstream profile refuses to modify an already tracked `AGENTS.md`, `CLAUDE.md`, or generated
 Claude settings because `.git/info/exclude` cannot hide changes to tracked files.
 
@@ -80,7 +78,7 @@ it produces becomes instructions for every agent that later works in that repo. 
   hooks, permissions, tokens, "ignore previous..."). The diff is always printed, and nothing is committed.
 
 This reduces the risk; it does not remove it. Read the `AGENTS.md` diff before committing, especially
-in repos you cloned from someone else. `sync`, `--all`, `--check` and `--dry-run` never call an
+in repos you cloned from someone else. `sync`, `--check` and deterministic `--dry-run` never call an
 agent. Rule editing runs the agent with no tools in an empty directory.
 
 ## Your rules
@@ -120,9 +118,6 @@ rules and returns every language file
 with the rule placed in the right section, translated, and merged with any rule it overlaps.
 It runs with no tools in an empty directory. agent-kit checks the answer (every language present,
 placeholders and first heading kept) before writing to your rules dir, and prints the diff.
-
-Global rule editing remains available through `agent-kit rules add "..."`; `agent-kit add-rule`
-is its compatibility alias.
 
 ## Project procedures
 
@@ -164,7 +159,7 @@ AI subprocess policy is centralized in `agent_kit/agents.py`.
 
 ## Changing a rule for every project
 
-Edit your rules (or use `add-rule`), then:
+Edit your rules (or use `agent-kit rules add`), then:
 
 ```bash
 agent-kit sync ~/repos --check   # see outdated repos and required migrations

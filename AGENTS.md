@@ -54,7 +54,7 @@ the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and
 `agent-kit` is a personal CLI that standardizes `AGENTS.md` / `CLAUDE.md` across repositories.
 Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules`, `procedures`
 and `doctor`.
-`add-rule` and `init --all` are compatibility aliases. `init` has two parts:
+`init` has two parts:
 - A deterministic part: the managed rules block, the `CLAUDE.md` import stub, the `.worktrees/` ignore entry, turning off Claude Code attribution, and ai-memory routing.
 - An optional generative part: `claude -p` or `codex exec` reads the repo without changing anything and prints the project sections, and agent-kit writes them into `AGENTS.md`.
 
@@ -129,8 +129,7 @@ and `doctor`.
 - Templates use `{{CHAT_LANG_NAME}}`, `{{DOCS_LANG_NAME}}` and `{{GIT_LANG_NAME}}`; legacy
   personal templates using `{{LANG_NAME}}` work when chat and docs share a language.
 - `rules/en.md` and `rules/pt.md` must stay in sync: change both when editing a rule.
-- `sync` and the compatibility `--all` path only re-apply deterministic changes. `--all` rejects
-  per-repo flags; add new per-repo flags to that rejection list in `run_init`.
+- `sync` only re-applies deterministic changes and never invokes an agent.
 - Testing rules:
   - Tests point `AGENT_KIT_RULES` at a temp dir, so the user's real rules dir is never read.
   - Tests that call the CLI set `PATH` to a temp `bin` dir that holds only `git` plus any fake stubs

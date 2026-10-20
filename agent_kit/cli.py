@@ -24,7 +24,6 @@ def build_parser():
     sync.register(subparsers)
     rules.register(subparsers)
     procedures.register(subparsers)
-    rules.register_legacy(subparsers)
     doctor.register(subparsers)
     return parser
 

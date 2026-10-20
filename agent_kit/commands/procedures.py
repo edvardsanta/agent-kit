@@ -155,8 +155,7 @@ def generate_procedure(repo, agent, path, title, description, lang, trust):
 
 
 def run(args):
-    repo_arg = getattr(args, "repo_option", None) or args.repo
-    repo = git_root(Path(repo_arg).expanduser().resolve())
+    repo = git_root(Path(args.repo).expanduser().resolve())
     directory = procedures_dir(repo)
     command = args.procedures_command
     if command == "path":
@@ -252,10 +251,10 @@ def register(subparsers):
     parser = subparsers.add_parser("procedures", help="manage AI-agnostic procedures stored with the project")
     commands = parser.add_subparsers(dest="procedures_command", required=True)
     path = commands.add_parser("path", help="print the project procedures directory")
-    path.add_argument("repo", nargs="?", default=".", help="target repository")
+    path.add_argument("--repo", default=".", help="target repository")
     path.set_defaults(func=run)
     initialize = commands.add_parser("init", help="create the project procedures directory")
-    initialize.add_argument("repo", nargs="?", default=".", help="target repository")
+    initialize.add_argument("--repo", default=".", help="target repository")
     initialize.add_argument("--docs-lang", choices=LANGS,
                             help="README language (default: saved docs language, else pt)")
     output = initialize.add_mutually_exclusive_group()
@@ -266,9 +265,7 @@ def register(subparsers):
     add = commands.add_parser("add", help="have a local agent write a project procedure")
     add.add_argument("name", nargs="?",
                      help="optional name or path; omit it to derive both title and filename interactively")
-    add.add_argument("repo", nargs="?", default=".", help="target repository")
-    add.add_argument("--repo", dest="repo_option",
-                     help="target repository, especially for the no-name interactive form")
+    add.add_argument("--repo", default=".", help="target repository")
     add.add_argument("--title", help="document title (default: derived from the name or by the AI)")
     add.add_argument("--description",
                      help="what the procedure should accomplish (prompted in terminals; required in scripts)")
@@ -282,9 +279,9 @@ def register(subparsers):
                      help="call the agent and print the resulting diff without writing")
     add.set_defaults(func=run)
     listing = commands.add_parser("list", help="list project procedure files")
-    listing.add_argument("repo", nargs="?", default=".", help="target repository")
+    listing.add_argument("--repo", default=".", help="target repository")
     listing.set_defaults(func=run)
     show = commands.add_parser("show", help="print a project procedure")
     show.add_argument("name", help="procedure name or relative Markdown path")
-    show.add_argument("repo", nargs="?", default=".", help="target repository")
+    show.add_argument("--repo", default=".", help="target repository")
     show.set_defaults(func=run)

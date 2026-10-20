@@ -101,7 +101,7 @@ def run(args):
             log("project rule overlays created")
             log(f"apply them with: `agent-kit init {repo} --agent none`")
     else:
-        if getattr(args, "init", False) or getattr(args, "rules_command", None) == "init":
+        if getattr(args, "rules_command", None) == "init":
             seed_rules()
         print(f"user rules dir: {user_rules_dir()}")
         for lang in LANGS:
@@ -122,9 +122,7 @@ def add_arguments(parser):
 
 def register(subparsers):
     parser = subparsers.add_parser("rules", help="show which rules files the managed block is built from")
-    parser.add_argument("--init", action="store_true", help="legacy alias for `rules init`")
-    parser.set_defaults(func=run, scope="global", repo=None)
-    commands = parser.add_subparsers(dest="rules_command")
+    commands = parser.add_subparsers(dest="rules_command", required=True)
     show = commands.add_parser("show", help="show the active rule files")
     show.add_argument("--scope", choices=["global", "project"], default="global")
     show.add_argument("--repo", help="target repository; requires --scope project")
@@ -135,8 +133,3 @@ def register(subparsers):
     initialize.set_defaults(func=run)
     add = commands.add_parser("add", help="have a local agent add a rule in every language")
     add_arguments(add)
-
-
-def register_legacy(subparsers):
-    parser = subparsers.add_parser("add-rule", help="compatibility alias for `rules add`")
-    add_arguments(parser)

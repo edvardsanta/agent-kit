@@ -147,13 +147,9 @@ def add_project_sections(changes, sections):
 
 def resolve_languages(repo, args):
     old_docs, old_chat, old_git = saved_languages(repo)
-    if args.lang and (args.docs_lang or args.chat_lang):
-        raise InitError("--lang cannot be combined with --docs-lang or --chat-lang")
-    if args.lang:
-        log("NOTE: --lang is the legacy alias for --docs-lang plus --chat-lang")
-    docs_lang = args.docs_lang or args.lang or old_docs or "pt"
-    chat_lang = args.chat_lang or args.lang or old_chat or docs_lang
-    git_lang = args.git_lang or (args.lang if args.lang else old_git) or docs_lang
+    docs_lang = args.docs_lang or old_docs or "pt"
+    chat_lang = args.chat_lang or old_chat or docs_lang
+    git_lang = args.git_lang or old_git or docs_lang
     return docs_lang, chat_lang, git_lang
 
 
@@ -247,6 +243,7 @@ def run_all(root, args):
 
 
 def apply_profile(repo, args):
+    args.hide_agent_files = False
     if args.profile == "upstream":
         if args.tracked:
             raise InitError("--profile upstream cannot be combined with --tracked")
@@ -255,11 +252,7 @@ def apply_profile(repo, args):
         args.hide_agent_files = True
         args.no_skills = True
     elif args.profile == "own":
-        if args.hide_agent_files:
-            raise InitError("--profile own cannot be combined with --hide-agent-files")
         args.tracked = True
-    elif args.hide_agent_files:
-        args.no_skills = True
     if args.hide_agent_files:
         tracked = tracked_paths(repo, ["AGENTS.md", "CLAUDE.md", ".claude/settings.local.json"])
         if tracked:
@@ -271,20 +264,6 @@ def apply_profile(repo, args):
 
 def run(args):
     target = Path(args.repo).expanduser().resolve()
-    if args.all:
-        values = (("--lang", args.lang), ("--docs-lang", args.docs_lang),
-                  ("--chat-lang", args.chat_lang), ("--git-lang", args.git_lang),
-                  ("--profile", args.profile), ("--agent", args.agent),
-                  ("--migrate-claude", args.migrate_claude), ("--full-memory", args.full_memory),
-                  ("--tracked", args.tracked), ("--hide-agent-files", args.hide_agent_files),
-                  ("--no-skills", args.no_skills), ("--trust", args.trust),
-                  ("--keep-claude", args.keep_claude))
-        incompatible = [flag for flag, value in values if value]
-        if incompatible:
-            raise InitError(f"--all only re-applies the deterministic part; not compatible with {', '.join(incompatible)}")
-        if not target.is_dir():
-            raise InitError(f"{target} is not a directory")
-        return run_all(target, args)
     target = git_root(target)
     apply_profile(target, args)
     return run_one(target, args)
@@ -293,7 +272,7 @@ def run(args):
 def register(subparsers):
     parser = subparsers.add_parser("init", help="set up or update a repository (what `agent-init` runs)")
     parser.add_argument("repo", nargs="?", default=".",
-                        help="target repository, or the root to scan with --all (default: current dir)")
+                        help="target repository (default: current directory)")
     parser.add_argument("--profile", choices=["own", "upstream"],
                         help="safe defaults for your repository or a third-party clone")
     parser.add_argument("--chat-lang", choices=LANGS, help="language agents use to talk with you")
@@ -301,15 +280,12 @@ def register(subparsers):
                         help="documentation and managed-rules language (default: saved value, else pt)")
     parser.add_argument("--git-lang", choices=LANGS,
                         help="language of commits/issues/PRs (default: saved value, else docs language)")
-    parser.add_argument("--lang", choices=LANGS, help="legacy alias for --chat-lang plus --docs-lang")
     parser.add_argument("--agent", choices=["auto", "claude", "codex", "none"],
                         help="who fills project sections (default: auto, Claude then Codex)")
     parser.add_argument("--full-memory", action="store_true",
                         help="inline the full ai-memory guidance instead of --compact")
     parser.add_argument("--tracked", action="store_true",
                         help="put .worktrees/ in the tracked .gitignore instead of .git/info/exclude")
-    parser.add_argument("--hide-agent-files", action="store_true",
-                        help="also exclude AGENTS.md/CLAUDE.md locally (upstream forks)")
     claude_mode = parser.add_mutually_exclusive_group()
     claude_mode.add_argument("--migrate-claude", action="store_true",
                              help="move an existing CLAUDE.md into AGENTS.md and replace it with the import stub")
@@ -319,8 +295,6 @@ def register(subparsers):
                         help="do not install ai-memory skills into the project")
     parser.add_argument("--trust", action="store_true",
                         help="allow the agent to load the target repo's Claude config and MCP servers")
-    parser.add_argument("--all", action="store_true",
-                        help="re-apply deterministic changes to every managed repo below REPO")
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--check", action="store_true",
                         help="write nothing; list what is outdated and exit 1 if anything is")

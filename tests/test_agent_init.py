@@ -148,7 +148,8 @@ class PlanTest(TempDir):
 class CliTest(TempDir):
     def test_agent_none_then_check_and_dry_run(self):
         repo = self.git_repo()
-        self.assertEqual(self.run_cli(repo, "--lang", "en", "--agent", "none").returncode, 0)
+        self.assertEqual(self.run_cli(repo, "--docs-lang", "en", "--chat-lang", "en",
+                                      "--agent", "none").returncode, 0)
         self.assertEqual(self.run_cli(repo, "--check").returncode, 0)
         dry = self.run_cli(repo, "--dry-run")
         self.assertEqual(dry.returncode, 0)
@@ -163,7 +164,8 @@ class CliTest(TempDir):
 
     def test_saved_lang_survives_rerun(self):
         repo = self.git_repo()
-        self.run_cli(repo, "--lang", "en", "--git-lang", "pt", "--agent", "none")
+        self.run_cli(repo, "--docs-lang", "en", "--chat-lang", "en",
+                     "--git-lang", "pt", "--agent", "none")
         self.run_cli(repo, "--agent", "none")
         self.assertEqual(ai.saved_langs(repo), ("en", "pt"))
 
@@ -254,34 +256,39 @@ class CliTest(TempDir):
     def test_not_a_repo(self):
         self.assertEqual(self.run_cli(self.tmp, "--agent", "none").returncode, 2)
 
-    def test_all(self):
+    def test_sync(self):
         root = self.tmp / "repos"
         en, pt = self.git_repo("repos/a"), self.git_repo("repos/group/b")
         legacy, plain = self.git_repo("repos/legacy"), self.git_repo("repos/plain")
-        self.run_cli(en, "--lang", "en", "--agent", "none")
-        self.run_cli(pt, "--lang", "pt", "--agent", "none")
+        self.run_cli(en, "--docs-lang", "en", "--chat-lang", "en", "--agent", "none")
+        self.run_cli(pt, "--docs-lang", "pt", "--chat-lang", "pt", "--agent", "none")
         (legacy / "AGENTS.md").write_text("<!-- agent-kit:start -->\nold\n<!-- agent-kit:end -->\n")
 
-        first = self.run_cli(root, "--all", "--check")
+        first = self.run_kit("sync", root, "--check")
         self.assertEqual(first.returncode, 1)
         self.assertIn("1 need migration", first.stdout)
         (pt / "AGENTS.md").write_text((pt / "AGENTS.md").read_text().replace("Commits", "XX"))
-        r = self.run_cli(root, "--all", "--check")
+        r = self.run_kit("sync", root, "--check")
         self.assertEqual(r.returncode, 1)
         self.assertIn("outdated group/b", r.stdout)
         self.assertIn("SKIP legacy", r.stdout)
 
-        self.assertEqual(self.run_cli(root, "--all").returncode, 0)
+        self.assertEqual(self.run_kit("sync", root).returncode, 0)
         self.assertEqual(ai.saved_langs(pt), ("pt", "pt"))
-        final = self.run_cli(root, "--all", "--check")
+        final = self.run_kit("sync", root, "--check")
         self.assertEqual(final.returncode, 1)
         self.assertIn("2 current", final.stdout)
         self.assertIn("1 need migration", final.stdout)
         self.assertIn("old", (legacy / "AGENTS.md").read_text())
         self.assertFalse((plain / "AGENTS.md").exists())
 
-    def test_all_rejects_per_repo_flags(self):
-        self.assertEqual(self.run_cli(self.tmp, "--all", "--lang", "en").returncode, 2)
+    def test_removed_init_aliases_are_rejected(self):
+        repo = self.git_repo()
+        for flag in ("--all", "--lang", "--hide-agent-files"):
+            self.assertEqual(self.run_cli(repo, flag, "en").returncode, 2)
+        self.assertEqual(self.run_kit("add-rule", "x").returncode, 2)
+        self.assertEqual(self.run_kit("rules", "--init").returncode, 2)
+        self.assertEqual(self.run_kit("procedures", "init", repo).returncode, 2)
 
     def test_sync_is_the_discoverable_all_command(self):
         root = self.tmp / "repos"
@@ -305,11 +312,12 @@ class RulesTest(TempDir):
     def test_user_rules_override_bundled(self):
         repo = self.git_repo()
         self.assertEqual(ai.rules_file("en"), KIT / "rules" / "en.md")
-        r = self.run_kit("rules", "--init")
+        r = self.run_kit("rules", "init")
         self.assertEqual(r.returncode, 0)
         self.assertIn("en: " + str(self.rules / "en.md") + " (user)", r.stdout)
         (self.rules / "en.md").write_text((self.rules / "en.md").read_text() + "- Custom rule.\n")
-        self.assertEqual(self.run_kit("init", repo, "--lang", "en", "--agent", "none").returncode, 0)
+        self.assertEqual(self.run_kit("init", repo, "--docs-lang", "en", "--chat-lang", "en",
+                                      "--agent", "none").returncode, 0)
         self.assertIn("- Custom rule.", (repo / "AGENTS.md").read_text())
         # pt still comes from the copy, which matches the bundled file
         self.assertEqual((self.rules / "pt.md").read_text(), (KIT / "rules" / "pt.md").read_text())
@@ -317,7 +325,7 @@ class RulesTest(TempDir):
     def test_rules_init_never_overwrites(self):
         self.rules.mkdir()
         (self.rules / "en.md").write_text("mine\n")
-        self.run_kit("rules", "--init")
+        self.run_kit("rules", "init")
         self.assertEqual((self.rules / "en.md").read_text(), "mine\n")
         self.assertTrue((self.rules / "pt.md").exists())
 
@@ -352,7 +360,7 @@ class RulesTest(TempDir):
     def test_xdg_config_home_is_the_default(self):
         env = {k: v for k, v in os.environ.items() if k != "AGENT_KIT_RULES"}
         env["XDG_CONFIG_HOME"] = str(self.tmp / "xdg")
-        r = subprocess.run([sys.executable, str(KIT_SCRIPT), "rules"], capture_output=True, text=True,
+        r = subprocess.run([sys.executable, str(KIT_SCRIPT), "rules", "show"], capture_output=True, text=True,
                            env={**env, "PATH": str(self.bin)})
         self.assertIn(str(self.tmp / "xdg" / "agent-kit" / "rules"), r.stdout)
 
@@ -383,7 +391,7 @@ class AddRuleTest(TempDir):
 
     def test_writes_user_rules_and_init_uses_them(self):
         self.fake_claude(self.answer())
-        r = self.run_kit("add-rule", "never push without asking")
+        r = self.run_kit("rules", "add", "never push without asking")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("+- Never push without asking.", r.stdout)
         prompt = (self.tmp / "prompt.txt").read_text()
@@ -399,7 +407,7 @@ class AddRuleTest(TempDir):
 
     def test_dry_run_writes_nothing(self):
         self.fake_claude(self.answer())
-        r = self.run_kit("add-rule", "x", "--dry-run")
+        r = self.run_kit("rules", "add", "x", "--dry-run")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("+- Never push without asking.", r.stdout)
         self.assertFalse(self.rules.exists())
@@ -407,7 +415,7 @@ class AddRuleTest(TempDir):
     def test_broken_answer_writes_nothing(self):
         for answer in (self.answer(drop_placeholder=True), "=== en.md ===\n## Default rules (agent-kit)\n=== end ===\n"):
             self.fake_claude(answer)
-            r = self.run_kit("add-rule", "x")
+            r = self.run_kit("rules", "add", "x")
             self.assertEqual(r.returncode, 2)
             self.assertIn("nothing written", r.stderr)
             self.assertFalse(self.rules.exists())
@@ -444,27 +452,28 @@ class ProceduresTest(TempDir):
         repo = self.git_repo()
         nested = repo / "nested"
         nested.mkdir()
-        r = self.run_kit("procedures", "path", nested)
+        r = self.run_kit("procedures", "path", "--repo", nested)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), str(repo / ".agent-kit" / "procedures"))
 
     def test_init_uses_saved_docs_language_and_is_idempotent(self):
         repo = self.git_repo()
         self.run_cli(repo, "--docs-lang", "en", "--agent", "none")
-        check = self.run_kit("procedures", "init", repo, "--check")
+        check = self.run_kit("procedures", "init", "--repo", repo, "--check")
         self.assertEqual(check.returncode, 1)
-        r = self.run_kit("procedures", "init", repo)
+        r = self.run_kit("procedures", "init", "--repo", repo)
         self.assertEqual(r.returncode, 0, r.stderr)
         readme = repo / ".agent-kit" / "procedures" / "README.md"
         self.assertIn("# Project procedures", readme.read_text())
-        self.assertEqual(self.run_kit("procedures", "init", repo, "--check").returncode, 0)
+        self.assertEqual(self.run_kit("procedures", "init", "--repo", repo, "--check").returncode, 0)
         readme.write_text("# Mine\n")
-        self.assertEqual(self.run_kit("procedures", "init", repo).returncode, 0)
+        self.assertEqual(self.run_kit("procedures", "init", "--repo", repo).returncode, 0)
         self.assertEqual(readme.read_text(), "# Mine\n")
 
     def test_init_dry_run_writes_nothing(self):
         repo = self.git_repo()
-        r = self.run_kit("procedures", "init", repo, "--docs-lang", "en", "--dry-run")
+        r = self.run_kit("procedures", "init", "--repo", repo,
+                         "--docs-lang", "en", "--dry-run")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Project procedures", r.stdout)
         self.assertFalse((repo / ".agent-kit").exists())
@@ -473,7 +482,7 @@ class ProceduresTest(TempDir):
         repo = self.git_repo()
         self.run_cli(repo, "--docs-lang", "en", "--agent", "none")
         self.fake_claude("Release deployment")
-        r = self.run_kit("procedures", "add", "deploy/release", repo,
+        r = self.run_kit("procedures", "add", "deploy/release", "--repo", repo,
                          "--title", "Release deployment",
                          "--description", "deploy a production release")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -494,7 +503,7 @@ class ProceduresTest(TempDir):
     def test_add_dry_run_writes_nothing(self):
         repo = self.git_repo()
         self.fake_claude()
-        r = self.run_kit("procedures", "add", "release", repo,
+        r = self.run_kit("procedures", "add", "release", "--repo", repo,
                          "--description", "publish a release",
                          "--docs-lang", "en", "--dry-run")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -504,11 +513,11 @@ class ProceduresTest(TempDir):
     def test_add_never_overwrites_a_procedure(self):
         repo = self.git_repo()
         self.fake_claude()
-        self.run_kit("procedures", "add", "release", repo,
+        self.run_kit("procedures", "add", "release", "--repo", repo,
                      "--description", "publish a release")
         procedure = repo / ".agent-kit" / "procedures" / "release.md"
         procedure.write_text("# Custom\n")
-        r = self.run_kit("procedures", "add", "release", repo)
+        r = self.run_kit("procedures", "add", "release", "--repo", repo)
         self.assertEqual(r.returncode, 2)
         self.assertIn("already exists", r.stderr)
         self.assertEqual(procedure.read_text(), "# Custom\n")
@@ -516,7 +525,7 @@ class ProceduresTest(TempDir):
     def test_add_rejects_invalid_agent_output_without_writing(self):
         repo = self.git_repo()
         self.fake_claude(body="# Wrong title\n\nNo useful sections.\n")
-        r = self.run_kit("procedures", "add", "release", repo,
+        r = self.run_kit("procedures", "add", "release", "--repo", repo,
                          "--description", "publish a release")
         self.assertEqual(r.returncode, 2)
         self.assertIn("must start with", r.stderr)
@@ -525,7 +534,7 @@ class ProceduresTest(TempDir):
     def test_add_slugifies_a_human_name(self):
         repo = self.git_repo()
         self.fake_claude("Dont Use Tmp")
-        r = self.run_kit("procedures", "add", "dont use tmp", repo,
+        r = self.run_kit("procedures", "add", "dont use tmp", "--repo", repo,
                          "--description", "keep reusable project artifacts in the repository")
         self.assertEqual(r.returncode, 0, r.stderr)
         procedure = repo / ".agent-kit" / "procedures" / "dont-use-tmp.md"
@@ -534,7 +543,7 @@ class ProceduresTest(TempDir):
 
     def test_add_requires_description_when_noninteractive(self):
         repo = self.git_repo()
-        r = self.run_kit("procedures", "add", "release", repo)
+        r = self.run_kit("procedures", "add", "release", "--repo", repo)
         self.assertEqual(r.returncode, 2)
         self.assertIn("--description is required", r.stderr)
         self.assertFalse((repo / ".agent-kit").exists())
@@ -570,25 +579,25 @@ class ProceduresTest(TempDir):
 
     def test_list_and_show_procedures(self):
         repo = self.git_repo()
-        self.run_kit("procedures", "init", repo)
+        self.run_kit("procedures", "init", "--repo", repo)
         procedures = repo / ".agent-kit" / "procedures"
         (procedures / "release.md").write_text("# Release\n")
         (procedures / "deploy").mkdir()
         (procedures / "deploy" / "staging.md").write_text("# Staging\n")
-        listed = self.run_kit("procedures", "list", repo)
+        listed = self.run_kit("procedures", "list", "--repo", repo)
         self.assertEqual(listed.returncode, 0, listed.stderr)
         self.assertEqual(listed.stdout.splitlines(), ["deploy/staging.md", "release.md"])
-        shown = self.run_kit("procedures", "show", "release", repo)
+        shown = self.run_kit("procedures", "show", "release", "--repo", repo)
         self.assertEqual(shown.returncode, 0, shown.stderr)
         self.assertEqual(shown.stdout, "# Release\n")
 
     def test_show_rejects_paths_outside_procedures(self):
         repo = self.git_repo()
-        self.run_kit("procedures", "init", repo)
-        r = self.run_kit("procedures", "show", "../../AGENTS.md", repo)
+        self.run_kit("procedures", "init", "--repo", repo)
+        r = self.run_kit("procedures", "show", "../../AGENTS.md", "--repo", repo)
         self.assertEqual(r.returncode, 2)
         self.assertIn("cannot leave", r.stderr)
-        r = self.run_kit("procedures", "show", "notes.txt", repo)
+        r = self.run_kit("procedures", "show", "notes.txt", "--repo", repo)
         self.assertEqual(r.returncode, 2)
         self.assertIn("Markdown", r.stderr)
 
@@ -610,7 +619,7 @@ class FillTest(TempDir):
 
     def repo_with_memory_block(self):
         repo = self.git_repo()
-        self.run_cli(repo, "--lang", "en", "--agent", "none")
+        self.run_cli(repo, "--docs-lang", "en", "--chat-lang", "en", "--agent", "none")
         agents = repo / "AGENTS.md"
         agents.write_text(agents.read_text() + "\n## Old notes\n\nstale\n\n<!-- ai-memory:start -->\nmem\n<!-- ai-memory:end -->\n")
         return repo, agents
@@ -661,7 +670,8 @@ class FillTest(TempDir):
         repo = self.git_repo()
         (repo / "CLAUDE.md").write_text("precious notes\n")
         self.fake_claude("garbage")
-        self.assertEqual(self.run_cli(repo, "--lang", "en", "--migrate-claude").returncode, 2)
+        self.assertEqual(self.run_cli(repo, "--docs-lang", "en", "--chat-lang", "en",
+                                      "--migrate-claude").returncode, 2)
         self.assertEqual((repo / "CLAUDE.md").read_text(), "precious notes\n")
         self.fake_claude(self.answer())
         self.assertEqual(self.run_cli(repo, "--migrate-claude").returncode, 0)
