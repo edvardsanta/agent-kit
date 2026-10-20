@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-KIT = Path(__file__).resolve().parent.parent
+KIT = Path(__file__).resolve().parent
 VERSION = "0.2.0"
 
 

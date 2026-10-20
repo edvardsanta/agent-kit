@@ -344,7 +344,7 @@ class CliTest(TempDir):
 class RulesTest(TempDir):
     def test_user_rules_override_bundled(self):
         repo = self.git_repo()
-        self.assertEqual(ai.rules_file("en"), KIT / "rules" / "en.md")
+        self.assertEqual(ai.rules_file("en"), ai.KIT / "rules" / "en.md")
         r = self.run_kit("rules", "init")
         self.assertEqual(r.returncode, 0)
         self.assertIn("en: " + str(self.rules / "en.md") + " (user)", r.stdout)
@@ -353,7 +353,8 @@ class RulesTest(TempDir):
                                       "--agent", "none").returncode, 0)
         self.assertIn("- Custom rule.", (repo / "AGENTS.md").read_text())
         # pt still comes from the copy, which matches the bundled file
-        self.assertEqual((self.rules / "pt.md").read_text(), (KIT / "rules" / "pt.md").read_text())
+        self.assertEqual((self.rules / "pt.md").read_text(),
+                         (ai.KIT / "rules" / "pt.md").read_text())
 
     def test_rules_init_never_overwrites(self):
         self.rules.mkdir()
@@ -411,7 +412,7 @@ class AddRuleTest(TempDir):
     def answer(self, drop_placeholder=False):
         out = ""
         for lang in ai.LANGS:
-            text = (KIT / "rules" / f"{lang}.md").read_text().rstrip() + f"\n{self.rule}\n"
+            text = (ai.KIT / "rules" / f"{lang}.md").read_text().rstrip() + f"\n{self.rule}\n"
             if drop_placeholder:
                 text = text.replace("{{GIT_LANG_NAME}}", "English")
             out += f"=== {lang}.md ===\n{text}\n"

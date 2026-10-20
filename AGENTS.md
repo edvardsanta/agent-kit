@@ -71,13 +71,14 @@ and `doctor`.
   runtime handlers.
 - `docs/cli-contract.md`: proposed first-release command grammar and behavioral guarantees; align
   parser changes with this contract instead of growing the surface ad hoc.
-- `rules/en.md`, `rules/pt.md`: bundled global baseline for the managed block. A target repo may
-  add tracked overlays in `.agent-kit/rules/<lang>.md`.
+- `agent_kit/rules/en.md`, `agent_kit/rules/pt.md`: packaged global baseline for the managed block.
+  A target repo may add tracked overlays in `.agent-kit/rules/<lang>.md`.
 - `.agent-kit/procedures/` in a target repository contains tracked, reusable workflows shared by
   users and all agents; `procedures init` creates its README without overwriting it later.
-- `prompts/fill.md`: prompt for the project sections. `prompts/migrate.md` is appended to it for
-  `--migrate-claude`; `prompts/add-rule.md` and `prompts/add-procedure.md` drive generative resource
-  creation.
+- `agent_kit/prompts/fill.md`: packaged prompt for the project sections. `migrate.md` is appended to
+  it for `--migrate-claude`; `add-rule.md` and `add-procedure.md` drive generative resource creation.
+- `pyproject.toml`: setuptools package metadata, package-data declarations, and the `agent-kit` /
+  `agent-init` cross-platform console entry points.
 - `tests/test_agent_init.py`: unittest suite; loads `bin/agent-kit` through `SourceFileLoader`.
 
 ## Environment and commands
@@ -85,7 +86,8 @@ and `doctor`.
 - No dependencies: Python 3 stdlib plus `git`. There is no CI, linter or formatter config in the repo.
 - `make test`: runs `python3 -m unittest discover -s tests`.
 - Single test (fast): `python3 -m unittest discover -s tests -k <test_name>`.
-- `make install`: symlinks `bin/agent-kit` as both `agent-kit` and `agent-init` into
+- `pipx install .` builds and installs both console commands on Linux, macOS, or Windows.
+- `make install`: Unix-only checkout shortcut that symlinks `bin/agent-kit` as both commands into
   `$(PREFIX)/bin` (default `~/.local`).
 - To run without writing anything: `bin/agent-kit init <repo> --dry-run` prints the diff, `--check`
   exits 1 if anything is outdated, and `bin/agent-kit rules add "..." --dry-run` shows the rule diff.
@@ -133,7 +135,8 @@ and `doctor`.
   `saved_languages`. Legacy `lang=` markers remain readable. Never write a literal marker elsewhere.
 - Templates use `{{CHAT_LANG_NAME}}`, `{{DOCS_LANG_NAME}}` and `{{GIT_LANG_NAME}}`; legacy
   personal templates using `{{LANG_NAME}}` work when chat and docs share a language.
-- `rules/en.md` and `rules/pt.md` must stay in sync: change both when editing a rule.
+- `agent_kit/rules/en.md` and `agent_kit/rules/pt.md` must stay in sync: change both when editing a
+  rule.
 - `sync` only re-applies deterministic changes and never invokes an agent.
 - Testing rules:
   - Tests point `AGENT_KIT_RULES` at a temp dir, so the user's real rules dir is never read.

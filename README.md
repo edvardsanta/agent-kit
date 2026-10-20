@@ -8,13 +8,18 @@ The proposed first-release command surface and behavioral guarantees are documen
 ## Install
 
 ```bash
-make install          # symlinks agent-kit and agent-init into ~/.local/bin
-make test             # stdlib unittest, no dependencies
-agent-kit doctor      # show which optional tools are available
+pipx install .                  # recommended on Linux, macOS and Windows
+python -m pip install .         # alternative standard Python installation
+make install                    # Unix checkout shortcut: symlinks into ~/.local/bin
+make test                       # stdlib unittest, no runtime dependencies
+agent-kit doctor                # show which optional tools are available
 agent-kit --version
 ```
 
 `agent-init` is an alias for `agent-kit init`. Use `agent-kit` for the other subcommands.
+The Python package installs both console commands and includes its bundled rules and prompts, so an
+installed wheel does not depend on the source checkout. On Windows, ensure the Python or pipx
+scripts directory is on `PATH`.
 
 ## Usage
 
@@ -41,7 +46,8 @@ Claude settings because `.git/info/exclude` cannot hide changes to tracked files
 
 ## What it does
 
-1. Inserts/updates the `<!-- agent-kit:start -->` block in `AGENTS.md` (rules in `rules/pt.md`, `rules/en.md`):
+1. Inserts/updates the `<!-- agent-kit:start -->` block in `AGENTS.md` (rules packaged under
+   `agent_kit/rules/`):
    language, no co-authorship, commit by batch, worktrees, project procedures and ai-memory usage.
 2. `CLAUDE.md` becomes just `@AGENTS.md`.
 3. `.worktrees/` goes into `.git/info/exclude` (use `--tracked` for the versioned `.gitignore`).
@@ -49,7 +55,8 @@ Claude settings because `.git/info/exclude` cannot hide changes to tracked files
 5. Unless `--memory off` is selected, `ai-memory install-instructions` installs its routing block
    and skills. The default is `compact`; `--profile upstream` defaults to `off`.
 6. An agent (`claude -p` or `codex exec`) reads the repo and answers with overview, commands,
-   conventions and pitfalls (`prompts/fill.md`); agent-kit writes them outside the managed blocks.
+   conventions and pitfalls (`agent_kit/prompts/fill.md`); agent-kit writes them outside the
+   managed blocks.
 
 Idempotent: chat, documentation, and Git languages are stored independently in the marker, so
 running it again preserves each choice. The command can be run from any repository subdirectory.
@@ -90,13 +97,13 @@ agent. Rule editing runs the agent with no tools in an empty directory.
 
 ## Your rules
 
-The bundled `rules/` are defaults. Your own rules live outside the checkout, so `git pull`
+The bundled `agent_kit/rules/` files are defaults. Your own rules live outside the checkout, so `git pull`
 never conflicts with them:
 
 - the user rules dir is `$AGENT_KIT_RULES` if set, else `~/.config/agent-kit/rules`
   (`$XDG_CONFIG_HOME` is respected);
 - `<lang>.md` is read from there, and a language missing there falls back to the bundled
-  `rules/<lang>.md`.
+  `agent_kit/rules/<lang>.md`.
 
 ```bash
 agent-kit rules show          # show global rule files

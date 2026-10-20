@@ -30,7 +30,7 @@ def build_parser():
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    if Path(sys.argv[0]).name == "agent-init" and argv != ["--version"]:
+    if Path(sys.argv[0]).stem == "agent-init" and argv != ["--version"]:
         argv = ["init", *argv]
     args = build_parser().parse_args(argv)
     try:

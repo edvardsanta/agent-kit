@@ -187,7 +187,8 @@ profiles are explicit command options rather than hidden global state.
 1. Align parser definitions and help output with this command tree; remove compatibility paths.
 2. Centralize shared repository, agent, preview, output, and exit-status behavior.
 3. Complete procedure discovery with a small generated index referenced by the managed rules.
-4. Add `pyproject.toml` and console-script installation, including Windows support.
+4. Maintain `pyproject.toml`, packaged rules/prompts, and console-script installation on every
+   supported platform.
 5. Add CI for supported Python versions on Linux, macOS, and Windows.
 6. Dogfood initialization, synchronization, rules, and procedures in representative repositories.
 7. Reconcile the current version constant with the first tagged release and publish migration notes.

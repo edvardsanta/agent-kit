@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-kit"
+dynamic = ["version"]
+description = "Standardize AGENTS.md and CLAUDE.md across repositories"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = []
+
+[project.scripts]
+agent-kit = "agent_kit.cli:main"
+agent-init = "agent_kit.cli:main"
+
+[tool.setuptools]
+packages = ["agent_kit", "agent_kit.commands"]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "agent_kit.VERSION"}
+
+[tool.setuptools.package-data]
+agent_kit = ["prompts/*.md", "rules/*.md"]
