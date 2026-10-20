@@ -96,8 +96,8 @@ and `doctor`.
 - `rules add` checks the agent's answer in `parse_rules_answer` before writing anything: every
   language present, placeholders kept, first heading kept. `--scope project` writes an additive
   tracked overlay; global remains the default for backward compatibility.
-- `procedures path/init/list/show` resolve the Git root from any subdirectory. Procedure paths
-  must stay inside `.agent-kit/procedures/`, and initialization never overwrites its README.
+- `procedures path/init/add/list/show` resolve the Git root from any subdirectory. Procedure paths
+  must stay inside `.agent-kit/procedures/`; initialization and creation never overwrite files.
 - How the agent fills `AGENTS.md`:
   - The agent never edits files. `generate_project_sections` runs it read-only before the pending
     repository changes are applied:

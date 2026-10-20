@@ -129,13 +129,16 @@ same procedures while agent-specific configuration remains separate.
 
 ```bash
 agent-kit procedures init              # create README.md without overwriting it later
+agent-kit procedures add release       # create release.md from a safe template
 agent-kit procedures path              # print the absolute directory path
 agent-kit procedures list              # list Markdown procedures
 agent-kit procedures show release      # print release.md
 ```
 
 `procedures init` uses the repository's saved documentation language, supports `--check` and
-`--dry-run`, and can run from any repository subdirectory. Keep one workflow per Markdown file.
+`--dry-run`, and can run from any repository subdirectory. `procedures add` initializes the
+directory when needed, supports nested names and `--title`, and never overwrites an existing file.
+Keep one workflow per Markdown file.
 Temporary directories remain appropriate for disposable investigation artifacts; create or update
 a durable procedure only when the user explicitly asks to preserve it.
 

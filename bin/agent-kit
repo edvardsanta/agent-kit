@@ -55,6 +55,52 @@ Fluxos reutilizáveis do projeto, compartilhados por usuários e todos os agente
 - Crie ou atualize procedimentos somente quando o usuário pedir explicitamente para preservá-los.
 """,
 }
+PROCEDURE_TEMPLATE = {
+    "en": """# {title}
+
+## When to use
+
+Describe when this procedure applies.
+
+## Prerequisites
+
+- List required access, tools and state.
+
+## Steps
+
+1. Describe the first action.
+
+## Verification
+
+- Describe how to confirm success.
+
+## Rollback
+
+- Describe how to recover when relevant.
+""",
+    "pt": """# {title}
+
+## Quando usar
+
+Descreva quando este procedimento se aplica.
+
+## Pré-requisitos
+
+- Liste acessos, ferramentas e estado necessários.
+
+## Passos
+
+1. Descreva a primeira ação.
+
+## Verificação
+
+- Descreva como confirmar o sucesso.
+
+## Reversão
+
+- Descreva como recuperar quando relevante.
+""",
+}
 
 CLAUDE_MD = """@AGENTS.md
 
@@ -676,6 +722,31 @@ def run_procedures(args):
         log("add Markdown procedure files to .agent-kit/procedures/ and commit them with the project")
         return 0
 
+    if command == "add":
+        docs_lang, _, _ = saved_languages(repo)
+        lang = args.docs_lang or docs_lang or "pt"
+        path = procedure_path(directory, args.name)
+        if path.name.lower() == "readme.md":
+            raise InitError("README.md is reserved for the procedures index")
+        relative_path = path.relative_to(directory.resolve())
+        if path.exists():
+            raise InitError(f"procedure already exists: {relative_path}")
+        title = args.title or Path(args.name).stem.replace("-", " ").replace("_", " ").strip().title()
+        if not title:
+            raise InitError("procedure title cannot be empty")
+        ch = Changes(repo)
+        readme = directory / "README.md"
+        if not readme.exists():
+            ch.write(readme, PROCEDURES_README[lang], "procedures: created .agent-kit/procedures/README.md")
+        ch.write(path, PROCEDURE_TEMPLATE[lang].format(title=title),
+                 f"procedures: created {ch.rel(path)}")
+        if args.dry_run:
+            ch.diff()
+            return 0
+        ch.apply()
+        log(f"edit {ch.rel(path)}, then commit it with the project")
+        return 0
+
     if not directory.is_dir():
         raise InitError("project procedures are not initialized; run `agent-kit procedures init`")
 
@@ -859,6 +930,15 @@ def build_parser():
     procedures_output.add_argument("--dry-run", action="store_true",
                                    help="write nothing; print the README diff")
     procedures_init.set_defaults(func=run_procedures)
+    procedures_add = procedures_sub.add_parser("add", help="create a Markdown procedure template")
+    procedures_add.add_argument("name", help="procedure name or relative Markdown path")
+    procedures_add.add_argument("repo", nargs="?", default=".", help="target repository")
+    procedures_add.add_argument("--title", help="document title (default: derived from the name)")
+    procedures_add.add_argument("--docs-lang", choices=LANGS,
+                                help="template language (default: saved docs language, else pt)")
+    procedures_add.add_argument("--dry-run", action="store_true",
+                                help="write nothing; print the README and procedure diff")
+    procedures_add.set_defaults(func=run_procedures)
     procedures_list = procedures_sub.add_parser("list", help="list project procedure files")
     procedures_list.add_argument("repo", nargs="?", default=".", help="target repository")
     procedures_list.set_defaults(func=run_procedures)

@@ -451,6 +451,38 @@ class ProceduresTest(TempDir):
         self.assertIn("Project procedures", r.stdout)
         self.assertFalse((repo / ".agent-kit").exists())
 
+    def test_add_creates_the_index_and_a_nested_procedure(self):
+        repo = self.git_repo()
+        self.run_cli(repo, "--docs-lang", "en", "--agent", "none")
+        r = self.run_kit("procedures", "add", "deploy/release", repo,
+                         "--title", "Release deployment")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        procedures = repo / ".agent-kit" / "procedures"
+        self.assertTrue((procedures / "README.md").exists())
+        text = (procedures / "deploy" / "release.md").read_text()
+        self.assertIn("# Release deployment", text)
+        self.assertIn("## Prerequisites", text)
+        self.assertIn("## Verification", text)
+        self.assertIn("## Rollback", text)
+
+    def test_add_dry_run_writes_nothing(self):
+        repo = self.git_repo()
+        r = self.run_kit("procedures", "add", "release", repo,
+                         "--docs-lang", "en", "--dry-run")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("# Release", r.stdout)
+        self.assertFalse((repo / ".agent-kit").exists())
+
+    def test_add_never_overwrites_a_procedure(self):
+        repo = self.git_repo()
+        self.run_kit("procedures", "add", "release", repo)
+        procedure = repo / ".agent-kit" / "procedures" / "release.md"
+        procedure.write_text("# Custom\n")
+        r = self.run_kit("procedures", "add", "release", repo)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("already exists", r.stderr)
+        self.assertEqual(procedure.read_text(), "# Custom\n")
+
     def test_list_and_show_procedures(self):
         repo = self.git_repo()
         self.run_kit("procedures", "init", repo)
