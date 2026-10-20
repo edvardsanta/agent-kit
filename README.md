@@ -139,7 +139,10 @@ agent-kit procedures show release      # print release.md
 `procedures init` uses the repository's saved documentation language, supports `--check` and
 `--dry-run`, and can run from any repository subdirectory. `procedures add` initializes the
 directory when needed, supports nested names, `--title`, `--description`, `--agent` and `--trust`,
-and never overwrites an existing file. Claude or Codex inspects the repository read-only and
+and never overwrites an existing file. Human-readable names are converted to safe paths, so
+`"don't use tmp"` becomes `dont-use-tmp.md`. When `--description` is omitted in a terminal, an
+interactive multiline prompt asks for the goal, context and constraints; scripts and other
+non-interactive callers must pass `--description`. Claude or Codex inspects the repository read-only and
 returns the complete procedure; agent-kit validates the delimiters, title, sections and managed
 markers before writing it. The target repository's Claude configuration is ignored unless
 `--trust` is passed. `--dry-run` still calls the agent, but only prints the resulting diff.

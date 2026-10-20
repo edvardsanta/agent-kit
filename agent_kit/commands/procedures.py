@@ -1,6 +1,8 @@
 """Manage reusable, AI-authored project procedures."""
 
 import re
+import sys
+import unicodedata
 from pathlib import Path
 
 from .. import KIT, InitError, log
@@ -31,6 +33,17 @@ Fluxos reutilizáveis do projeto, compartilhados por usuários e todos os agente
 """,
 }
 
+DESCRIPTION_PROMPTS = {
+    "en": (
+        "Explain the procedure for the AI. Describe its goal, when to use it, and important "
+        "constraints. Finish with an empty line."
+    ),
+    "pt": (
+        "Explique o procedimento para a IA. Descreva o objetivo, quando usá-lo e restrições "
+        "importantes. Termine com uma linha vazia."
+    ),
+}
+
 
 def procedures_dir(repo):
     directory = repo / ".agent-kit" / "procedures"
@@ -41,8 +54,27 @@ def procedures_dir(repo):
     return directory
 
 
-def procedure_path(directory, name):
-    relative = Path(name)
+def slugify(value):
+    normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", normalized.lower()).strip("-")
+
+
+def normalized_procedure_name(name):
+    raw = Path(name)
+    if raw.is_absolute() or any(part in ("", ".", "..") for part in raw.parts):
+        raise InitError("procedure names must be relative and cannot leave .agent-kit/procedures")
+    if raw.suffix and raw.suffix.lower() != ".md":
+        raise InitError("procedures must be Markdown files")
+    source_parts = list(raw.parts)
+    source_parts[-1] = Path(source_parts[-1]).stem
+    parts = [slugify(part) for part in source_parts]
+    if any(not part for part in parts):
+        raise InitError("procedure name must contain letters or numbers")
+    return Path(*parts).with_suffix(".md")
+
+
+def procedure_path(directory, name, normalize=False):
+    relative = normalized_procedure_name(name) if normalize else Path(name)
     if relative.name in ("", ".", ".."):
         raise InitError("procedure name must identify a Markdown file")
     if relative.suffix == "":
@@ -57,6 +89,31 @@ def procedure_path(directory, name):
     except ValueError:
         raise InitError("procedure names cannot leave .agent-kit/procedures")
     return candidate
+
+
+def prompt_for_description(lang, input_fn=input):
+    print(DESCRIPTION_PROMPTS[lang])
+    lines = []
+    while True:
+        try:
+            line = input_fn("> " if not lines else "| ")
+        except EOFError:
+            break
+        if not line.strip():
+            break
+        lines.append(line.strip())
+    description = "\n".join(lines).strip()
+    if not description:
+        raise InitError("procedure description cannot be empty")
+    return description
+
+
+def resolve_description(description, lang):
+    if description and description.strip():
+        return description.strip()
+    if not sys.stdin.isatty():
+        raise InitError("--description is required when input is not interactive")
+    return prompt_for_description(lang)
 
 
 def parse_procedure(answer, title):
@@ -123,7 +180,7 @@ def run(args):
     if command == "add":
         docs_lang, _, _ = saved_languages(repo)
         lang = args.docs_lang or docs_lang or "pt"
-        path = procedure_path(directory, args.name)
+        path = procedure_path(directory, args.name, normalize=True)
         if path.name.lower() == "readme.md":
             raise InitError("README.md is reserved for the procedures index")
         relative = path.relative_to(directory.resolve())
@@ -134,8 +191,9 @@ def run(args):
             raise InitError("procedure title cannot be empty")
         if "\n" in title or "\r" in title or MARKER_RE.search(title):
             raise InitError("procedure title must be a single plain-text line")
+        description = resolve_description(args.description, lang)
         agent = select_agent(args.agent)
-        procedure = generate_procedure(repo, agent, path, title, args.description, lang, args.trust)
+        procedure = generate_procedure(repo, agent, path, title, description, lang, args.trust)
         changes = Changes(repo)
         readme = directory / "README.md"
         if not readme.exists():
@@ -188,10 +246,11 @@ def register(subparsers):
     output.add_argument("--dry-run", action="store_true", help="write nothing; print the README diff")
     initialize.set_defaults(func=run)
     add = commands.add_parser("add", help="have a local agent write a project procedure")
-    add.add_argument("name", help="procedure name or relative Markdown path")
+    add.add_argument("name", help="human-readable procedure name or relative Markdown path")
     add.add_argument("repo", nargs="?", default=".", help="target repository")
     add.add_argument("--title", help="document title (default: derived from the name)")
-    add.add_argument("--description", help="what the procedure should accomplish")
+    add.add_argument("--description",
+                     help="what the procedure should accomplish (prompted in terminals; required in scripts)")
     add.add_argument("--docs-lang", choices=LANGS,
                      help="procedure language (default: saved docs language, else pt)")
     add.add_argument("--agent", choices=["auto", "claude", "codex"], default="auto",

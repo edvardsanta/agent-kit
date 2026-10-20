@@ -494,6 +494,7 @@ class ProceduresTest(TempDir):
         repo = self.git_repo()
         self.fake_claude()
         r = self.run_kit("procedures", "add", "release", repo,
+                         "--description", "publish a release",
                          "--docs-lang", "en", "--dry-run")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("# Release", r.stdout)
@@ -502,7 +503,8 @@ class ProceduresTest(TempDir):
     def test_add_never_overwrites_a_procedure(self):
         repo = self.git_repo()
         self.fake_claude()
-        self.run_kit("procedures", "add", "release", repo)
+        self.run_kit("procedures", "add", "release", repo,
+                     "--description", "publish a release")
         procedure = repo / ".agent-kit" / "procedures" / "release.md"
         procedure.write_text("# Custom\n")
         r = self.run_kit("procedures", "add", "release", repo)
@@ -513,10 +515,37 @@ class ProceduresTest(TempDir):
     def test_add_rejects_invalid_agent_output_without_writing(self):
         repo = self.git_repo()
         self.fake_claude(body="# Wrong title\n\nNo useful sections.\n")
-        r = self.run_kit("procedures", "add", "release", repo)
+        r = self.run_kit("procedures", "add", "release", repo,
+                         "--description", "publish a release")
         self.assertEqual(r.returncode, 2)
         self.assertIn("must start with", r.stderr)
         self.assertFalse((repo / ".agent-kit").exists())
+
+    def test_add_slugifies_a_human_name(self):
+        repo = self.git_repo()
+        self.fake_claude("Dont Use Tmp")
+        r = self.run_kit("procedures", "add", "dont use tmp", repo,
+                         "--description", "keep reusable project artifacts in the repository")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        procedure = repo / ".agent-kit" / "procedures" / "dont-use-tmp.md"
+        self.assertTrue(procedure.exists())
+        self.assertFalse((procedure.parent / "dont use tmp.md").exists())
+
+    def test_add_requires_description_when_noninteractive(self):
+        repo = self.git_repo()
+        r = self.run_kit("procedures", "add", "release", repo)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("--description is required", r.stderr)
+        self.assertFalse((repo / ".agent-kit").exists())
+
+    def test_description_prompt_collects_multiple_lines(self):
+        from agent_kit.commands.procedures import prompt_for_description
+
+        answers = iter(["Run releases from CI.", "Never publish from a dirty tree.", ""])
+        description = prompt_for_description("en", lambda _: next(answers))
+        self.assertEqual(
+            description,
+            "Run releases from CI.\nNever publish from a dirty tree.")
 
     def test_list_and_show_procedures(self):
         repo = self.git_repo()

@@ -106,8 +106,9 @@ and `doctor`.
 - `procedures path/init/add/list/show` resolve the Git root from any subdirectory. Procedure paths
   must stay inside `.agent-kit/procedures/`; initialization and creation never overwrite files.
 - `procedures add` requires Claude or Codex, runs it with read-only repository access, validates
-  its delimited Markdown response, and never overwrites an existing procedure. `--dry-run` calls
-  the agent but writes nothing.
+  its delimited Markdown response, slugifies human-readable names, and never overwrites an existing
+  procedure. Without `--description`, terminals get a multiline prompt while non-interactive callers
+  fail instead of hanging. `--dry-run` calls the agent but writes nothing.
 - How the agent fills `AGENTS.md`:
   - The agent never edits files. `generate_project_sections` runs it read-only before the pending
     repository changes are applied:
