@@ -2,28 +2,61 @@
 
 Personal CLI to standardize `AGENTS.md` / `CLAUDE.md` across projects.
 
-The proposed first-release command surface and behavioral guarantees are documented in
+The first-release command surface and behavioral guarantees are documented in
 [`docs/cli-contract.md`](docs/cli-contract.md). If you used an earlier development checkout, see
 the [`0.1 migration notes`](docs/migration-0.1.md).
 
 ## Install
 
+Requirements: Python 3.10+ and `git` on `PATH`. There are no other runtime dependencies.
+`claude`, `codex` and `ai-memory` are optional; `agent-kit doctor` shows which ones it finds.
+
+The current pre-release is
+[`v0.1.0.dev0`](https://github.com/edvardsanta/agent-kit/releases/tag/v0.1.0.dev0). Install it
+with [pipx](https://pipx.pypa.io/), which puts `agent-kit` and `agent-init` on `PATH` in an
+isolated environment.
+
+Linux and macOS:
+
 ```bash
-pipx install .                  # recommended on Linux, macOS and Windows
-python -m pip install .         # alternative standard Python installation
-make install                    # Unix checkout shortcut: symlinks into ~/.local/bin
-make test                       # stdlib unittest, no runtime dependencies
-agent-kit doctor                # show which optional tools are available
-agent-kit --version
+python3 -m pip install --user pipx && python3 -m pipx ensurepath   # once, then reopen the shell
+pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.0.dev0
 ```
 
-`agent-init` is an alias for `agent-kit init`. Use `agent-kit` for the other subcommands.
-The Python package installs both console commands and includes its bundled rules and prompts, so an
-installed wheel does not depend on the source checkout. On Windows, ensure the Python or pipx
-scripts directory is on `PATH`.
+Windows (PowerShell; requires [Git for Windows](https://git-scm.com/download/win)):
+
+```powershell
+py -m pip install --user pipx; py -m pipx ensurepath               # once, then reopen the terminal
+pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.0.dev0
+```
+
+Check the installation:
+
+```bash
+agent-kit --version
+agent-kit doctor
+```
+
+Upgrade to a newer tag with `pipx install --force git+https://github.com/edvardsanta/agent-kit@<tag>`,
+and remove it with `pipx uninstall agent-kit`. Without pipx, `python -m pip install` accepts the same
+`git+https://...` URL, but then Python's scripts directory must be on `PATH`.
+
+`agent-init` is an alias for `agent-kit init`; use `agent-kit` for the other subcommands. The
+installed package includes its bundled rules and prompts, so it does not depend on a source
+checkout.
+
+### From a checkout (development)
+
+```bash
+git clone https://github.com/edvardsanta/agent-kit && cd agent-kit
+pipx install --editable .       # or: python -m pip install -e .
+make install                    # Unix-only alternative: symlinks bin/agent-kit into ~/.local/bin
+make test                       # stdlib unittest
+```
 
 CI runs the unit suite on Linux and macOS and builds, installs, and smoke-tests the wheel on Linux,
-macOS, and Windows with the oldest and newest supported Python versions.
+macOS, and Windows with the oldest and newest supported Python versions. On Windows only the
+installed-package smoke test runs, so agent-backed commands are less exercised there.
 
 ## Usage
 
