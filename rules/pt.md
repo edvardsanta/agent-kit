@@ -37,7 +37,9 @@ entre os marcadores; mude a regra nas suas regras do agent-kit (veja `agent-kit 
   nem diretórios específicos de um agente.
 - Trate procedimentos como documentação versionada do projeto, compartilhada por usuários e agentes.
 - Crie ou atualize um procedimento somente quando o usuário pedir explicitamente para preservá-lo.
-- Verifique se existe um procedimento relevante antes de executar um fluxo documentado.
+- Se `.agent-kit/procedures/INDEX.md` existir, leia-o antes de planejar um fluxo.
+- Quando uma entrada do índice corresponder à tarefa, leia o procedimento completo antes de
+  executar esse fluxo.
 
 ### Memória
 

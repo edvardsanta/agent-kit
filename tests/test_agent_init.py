@@ -464,16 +464,17 @@ class AddRuleTest(TempDir):
 
 
 class ProceduresTest(TempDir):
-    def fake_claude(self, title="Release", body=None):
+    def fake_claude(self, title="Release", body=None,
+                    summary="Publish a verified project release safely."):
         body = body or (
-            f"# {title}\n\n"
+            f"# {title}\n\n{summary}\n\n"
             "## Prerequisites\n\n- A clean working tree.\n\n"
             "## Steps\n\n1. Run the verified release command.\n\n"
             "## Verification\n\n- Confirm the release exists.\n\n"
             "## Rollback\n\n- Revert the release commit.\n"
         )
         (self.tmp / "procedure-answer.txt").write_text(
-            f"=== procedure ===\n{body}=== end ===\n")
+            f"=== summary ===\n{summary}\n=== procedure ===\n{body}=== end ===\n")
         stub = self.bin / "claude"
         stub.write_text(
             f'#!/bin/sh\nprintf "%s" "$2" > {self.tmp}/procedure-prompt.txt\n'
@@ -511,6 +512,16 @@ class ProceduresTest(TempDir):
         self.assertIn("Project procedures", r.stdout)
         self.assertFalse((repo / ".agent-kit").exists())
 
+    def test_init_rebuilds_the_generated_index(self):
+        repo = self.git_repo()
+        self.run_kit("procedures", "init", "--repo", repo, "--docs-lang", "en")
+        directory = repo / ".agent-kit" / "procedures"
+        (directory / "deploy.md").write_text(
+            "# Deploy\n\nDeploy the verified build to production.\n\n## Steps\n\n1. Deploy it.\n")
+        self.run_kit("procedures", "init", "--repo", repo, "--docs-lang", "en")
+        index = (directory / "INDEX.md").read_text()
+        self.assertIn("[Deploy](deploy.md) — Deploy the verified build to production.", index)
+
     def test_add_creates_the_index_and_a_nested_procedure(self):
         repo = self.git_repo()
         self.run_cli(repo, "--docs-lang", "en", "--agent", "none")
@@ -521,6 +532,9 @@ class ProceduresTest(TempDir):
         self.assertEqual(r.returncode, 0, r.stderr)
         procedures = repo / ".agent-kit" / "procedures"
         self.assertTrue((procedures / "README.md").exists())
+        index = (procedures / "INDEX.md").read_text()
+        self.assertIn("[Release deployment](deploy/release.md)", index)
+        self.assertIn("Publish a verified project release safely.", index)
         text = (procedures / "deploy" / "release.md").read_text()
         self.assertIn("# Release deployment", text)
         self.assertIn("## Prerequisites", text)
@@ -557,7 +571,8 @@ class ProceduresTest(TempDir):
 
     def test_add_rejects_invalid_agent_output_without_writing(self):
         repo = self.git_repo()
-        self.fake_claude(body="# Wrong title\n\nNo useful sections.\n")
+        self.fake_claude(body=(
+            "# Wrong title\n\nPublish a verified project release safely.\n\nNo useful sections.\n"))
         r = self.run_kit("procedures", "add", "release", "--repo", repo,
                          "--description", "publish a release")
         self.assertEqual(r.returncode, 2)
@@ -600,7 +615,10 @@ class ProceduresTest(TempDir):
             title=None, description=None, agent="auto", trust=False, dry_run=False)
         generated = (
             "Avoid Temporary Files",
-            "# Avoid Temporary Files\n\n## Steps\n\n1. Keep reusable artifacts in the project.\n")
+            "Keep reusable project artifacts out of temporary directories.",
+            "# Avoid Temporary Files\n\n"
+            "Keep reusable project artifacts out of temporary directories.\n\n"
+            "## Steps\n\n1. Keep reusable artifacts in the project.\n")
         with mock.patch.object(procedures.sys.stdin, "isatty", return_value=True), \
                 mock.patch.object(procedures, "prompt_for_description",
                                   return_value="Do not use /tmp for reusable project artifacts."), \
@@ -608,7 +626,9 @@ class ProceduresTest(TempDir):
                 mock.patch.object(procedures, "generate_procedure", return_value=generated):
             self.assertEqual(procedures.run(args), 0)
         path = repo / ".agent-kit" / "procedures" / "avoid-temporary-files.md"
-        self.assertEqual(path.read_text(), generated[1])
+        self.assertEqual(path.read_text(), generated[2])
+        self.assertIn("[Avoid Temporary Files](avoid-temporary-files.md)",
+                      (path.parent / "INDEX.md").read_text())
 
     def test_list_and_show_procedures(self):
         repo = self.git_repo()

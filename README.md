@@ -153,6 +153,10 @@ becomes `dont-use-tmp.md`. Scripts and other non-interactive callers must pass b
 returns the complete procedure; agent-kit validates the delimiters, title, sections and managed
 markers before writing it. The target repository's Claude configuration is ignored unless
 `--trust` is passed. `--dry-run` still calls the agent, but only prints the resulting diff.
+Each generated procedure starts with a one-sentence purpose summary. agent-kit maintains a compact
+`INDEX.md` containing titles, relative links and those summaries; `procedures init` safely rebuilds
+the index without overwriting the user-owned `README.md`. The managed rules tell agents to consult
+the index and load a matching procedure before performing its workflow.
 Keep one workflow per Markdown file.
 Temporary directories remain appropriate for disposable investigation artifacts; create or update
 a durable procedure only when the user explicitly asks to preserve it.
