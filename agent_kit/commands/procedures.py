@@ -1,0 +1,210 @@
+"""Manage reusable, AI-authored project procedures."""
+
+import re
+from pathlib import Path
+
+from .. import KIT, InitError, log
+from ..agents import ask_repo_agent, select_agent
+from ..changes import Changes
+from ..git import git_root
+from ..languages import LANGS, MARKER_RE, saved_languages
+from .init import suspicious_lines
+
+PROCEDURES_README = {
+    "en": """# Project procedures
+
+Reusable project workflows shared by users and all agents.
+
+- Keep one procedure per Markdown file.
+- Record prerequisites, ordered steps, verification and rollback where relevant.
+- Do not store secrets, credentials or disposable scratch work here.
+- Create or update procedures only when the user explicitly asks to preserve them.
+""",
+    "pt": """# Procedimentos do projeto
+
+Fluxos reutilizáveis do projeto, compartilhados por usuários e todos os agentes.
+
+- Mantenha um procedimento por arquivo Markdown.
+- Registre pré-requisitos, passos ordenados, verificação e reversão quando relevante.
+- Não guarde segredos, credenciais nem rascunhos descartáveis aqui.
+- Crie ou atualize procedimentos somente quando o usuário pedir explicitamente para preservá-los.
+""",
+}
+
+
+def procedures_dir(repo):
+    directory = repo / ".agent-kit" / "procedures"
+    try:
+        directory.resolve().relative_to(repo.resolve())
+    except ValueError:
+        raise InitError(f"{directory} resolves outside the repository")
+    return directory
+
+
+def procedure_path(directory, name):
+    relative = Path(name)
+    if relative.name in ("", ".", ".."):
+        raise InitError("procedure name must identify a Markdown file")
+    if relative.suffix == "":
+        relative = relative.with_suffix(".md")
+    elif relative.suffix.lower() != ".md":
+        raise InitError("procedures must be Markdown files")
+    if relative.is_absolute():
+        raise InitError("procedure names must be relative to .agent-kit/procedures")
+    candidate = (directory / relative).resolve()
+    try:
+        candidate.relative_to(directory.resolve())
+    except ValueError:
+        raise InitError("procedure names cannot leave .agent-kit/procedures")
+    return candidate
+
+
+def parse_procedure(answer, title):
+    match = re.search(r"^=== procedure ===[ \t]*$(.*?)^=== end ===", answer,
+                      flags=re.M | re.S)
+    if not match:
+        raise InitError("agent answer lacks the `=== procedure ===` / `=== end ===` delimiters; nothing written")
+    body = match.group(1).strip("\n")
+    if MARKER_RE.search(body):
+        raise InitError("agent answer contains managed-block markers; nothing written")
+    lines = body.splitlines()
+    if not lines or lines[0] != f"# {title}":
+        raise InitError(f"agent answer must start with `# {title}`; nothing written")
+    if not any(line.startswith("## ") for line in lines):
+        raise InitError("agent answer has no procedure sections; nothing written")
+    return body.rstrip() + "\n"
+
+
+def generate_procedure(repo, agent, path, title, description, lang, trust):
+    relative = path.relative_to(repo)
+    prompt = (KIT / "prompts" / "add-procedure.md").read_text()
+    replacements = {
+        "{{PATH}}": relative.as_posix(),
+        "{{TITLE}}": title,
+        "{{DESCRIPTION}}": description or title,
+        "{{LANG_NAME}}": LANGS[lang],
+    }
+    for placeholder, value in replacements.items():
+        prompt = prompt.replace(placeholder, value)
+    answer = ask_repo_agent(repo, agent, prompt, trust, f"writing procedure {relative}")
+    return parse_procedure(answer, title)
+
+
+def run(args):
+    repo = git_root(Path(args.repo).expanduser().resolve())
+    directory = procedures_dir(repo)
+    command = args.procedures_command
+    if command == "path":
+        print(directory)
+        return 0
+    if command == "init":
+        docs_lang, _, _ = saved_languages(repo)
+        lang = args.docs_lang or docs_lang or "pt"
+        readme = directory / "README.md"
+        changes = Changes(repo)
+        if not readme.exists():
+            changes.write(readme, PROCEDURES_README[lang],
+                          "procedures: created .agent-kit/procedures/README.md")
+        if args.check:
+            if changes.pending:
+                log("procedures not initialized")
+                return 1
+            log("procedures initialized")
+            return 0
+        if args.dry_run:
+            changes.diff()
+            return 0
+        if not changes.pending:
+            log("procedures already initialized")
+            return 0
+        changes.apply()
+        log("add Markdown procedure files to .agent-kit/procedures/ and commit them with the project")
+        return 0
+    if command == "add":
+        docs_lang, _, _ = saved_languages(repo)
+        lang = args.docs_lang or docs_lang or "pt"
+        path = procedure_path(directory, args.name)
+        if path.name.lower() == "readme.md":
+            raise InitError("README.md is reserved for the procedures index")
+        relative = path.relative_to(directory.resolve())
+        if path.exists():
+            raise InitError(f"procedure already exists: {relative}")
+        title = args.title or Path(args.name).stem.replace("-", " ").replace("_", " ").strip().title()
+        if not title:
+            raise InitError("procedure title cannot be empty")
+        if "\n" in title or "\r" in title or MARKER_RE.search(title):
+            raise InitError("procedure title must be a single plain-text line")
+        agent = select_agent(args.agent)
+        procedure = generate_procedure(repo, agent, path, title, args.description, lang, args.trust)
+        changes = Changes(repo)
+        readme = directory / "README.md"
+        if not readme.exists():
+            changes.write(readme, PROCEDURES_README[lang],
+                          "procedures: created .agent-kit/procedures/README.md")
+        changes.write(path, procedure, f"procedures: created {changes.rel(path)}")
+        changes.diff()
+        if args.dry_run:
+            return 0
+        changes.apply()
+        flagged = suspicious_lines("", procedure)
+        if flagged:
+            log("REVIEW: the procedure contains commands, URLs, permissions, or sensitive terms:")
+            for line in flagged:
+                log(f"  | {line.strip()}")
+        log(f"review {changes.rel(path)}, then commit it with the project")
+        return 0
+    if not directory.is_dir():
+        raise InitError("project procedures are not initialized; run `agent-kit procedures init`")
+    if command == "list":
+        files = sorted(path.relative_to(directory) for path in directory.rglob("*.md")
+                       if path.name != "README.md")
+        if not files:
+            log("no project procedures found")
+            return 0
+        for path in files:
+            print(path.as_posix())
+        return 0
+    path = procedure_path(directory, args.name)
+    if not path.is_file():
+        raise InitError(f"procedure not found: {args.name}")
+    text = path.read_text()
+    print(text, end="" if text.endswith("\n") else "\n")
+    return 0
+
+
+def register(subparsers):
+    parser = subparsers.add_parser("procedures", help="manage AI-agnostic procedures stored with the project")
+    commands = parser.add_subparsers(dest="procedures_command", required=True)
+    path = commands.add_parser("path", help="print the project procedures directory")
+    path.add_argument("repo", nargs="?", default=".", help="target repository")
+    path.set_defaults(func=run)
+    initialize = commands.add_parser("init", help="create the project procedures directory")
+    initialize.add_argument("repo", nargs="?", default=".", help="target repository")
+    initialize.add_argument("--docs-lang", choices=LANGS,
+                            help="README language (default: saved docs language, else pt)")
+    output = initialize.add_mutually_exclusive_group()
+    output.add_argument("--check", action="store_true",
+                        help="write nothing; exit 1 if procedures are not initialized")
+    output.add_argument("--dry-run", action="store_true", help="write nothing; print the README diff")
+    initialize.set_defaults(func=run)
+    add = commands.add_parser("add", help="have a local agent write a project procedure")
+    add.add_argument("name", help="procedure name or relative Markdown path")
+    add.add_argument("repo", nargs="?", default=".", help="target repository")
+    add.add_argument("--title", help="document title (default: derived from the name)")
+    add.add_argument("--description", help="what the procedure should accomplish")
+    add.add_argument("--docs-lang", choices=LANGS,
+                     help="procedure language (default: saved docs language, else pt)")
+    add.add_argument("--agent", choices=["auto", "claude", "codex"], default="auto",
+                     help="local agent CLI to use (default: auto, Claude then Codex)")
+    add.add_argument("--trust", action="store_true",
+                     help="allow the agent to load the target repo's Claude config and MCP servers")
+    add.add_argument("--dry-run", action="store_true",
+                     help="call the agent and print the resulting diff without writing")
+    add.set_defaults(func=run)
+    listing = commands.add_parser("list", help="list project procedure files")
+    listing.add_argument("repo", nargs="?", default=".", help="target repository")
+    listing.set_defaults(func=run)
+    show = commands.add_parser("show", help="print a project procedure")
+    show.add_argument("name", help="procedure name or relative Markdown path")
+    show.add_argument("repo", nargs="?", default=".", help="target repository")
+    show.set_defaults(func=run)

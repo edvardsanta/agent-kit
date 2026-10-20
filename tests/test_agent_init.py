@@ -422,6 +422,23 @@ class AddRuleTest(TempDir):
 
 
 class ProceduresTest(TempDir):
+    def fake_claude(self, title="Release", body=None):
+        body = body or (
+            f"# {title}\n\n"
+            "## Prerequisites\n\n- A clean working tree.\n\n"
+            "## Steps\n\n1. Run the verified release command.\n\n"
+            "## Verification\n\n- Confirm the release exists.\n\n"
+            "## Rollback\n\n- Revert the release commit.\n"
+        )
+        (self.tmp / "procedure-answer.txt").write_text(
+            f"=== procedure ===\n{body}=== end ===\n")
+        stub = self.bin / "claude"
+        stub.write_text(
+            f'#!/bin/sh\nprintf "%s" "$2" > {self.tmp}/procedure-prompt.txt\n'
+            f'for a in "$@"; do printf "%s\\n" "$a"; done > {self.tmp}/procedure-args.txt\n'
+            f'exec /bin/cat {self.tmp}/procedure-answer.txt\n')
+        stub.chmod(0o755)
+
     def test_path_uses_repository_root_from_a_subdirectory(self):
         repo = self.git_repo()
         nested = repo / "nested"
@@ -454,8 +471,10 @@ class ProceduresTest(TempDir):
     def test_add_creates_the_index_and_a_nested_procedure(self):
         repo = self.git_repo()
         self.run_cli(repo, "--docs-lang", "en", "--agent", "none")
+        self.fake_claude("Release deployment")
         r = self.run_kit("procedures", "add", "deploy/release", repo,
-                         "--title", "Release deployment")
+                         "--title", "Release deployment",
+                         "--description", "deploy a production release")
         self.assertEqual(r.returncode, 0, r.stderr)
         procedures = repo / ".agent-kit" / "procedures"
         self.assertTrue((procedures / "README.md").exists())
@@ -464,9 +483,16 @@ class ProceduresTest(TempDir):
         self.assertIn("## Prerequisites", text)
         self.assertIn("## Verification", text)
         self.assertIn("## Rollback", text)
+        prompt = (self.tmp / "procedure-prompt.txt").read_text()
+        self.assertIn("deploy a production release", prompt)
+        self.assertIn(".agent-kit/procedures/deploy/release.md", prompt)
+        args = (self.tmp / "procedure-args.txt").read_text().splitlines()
+        self.assertIn("--strict-mcp-config", args)
+        self.assertNotIn("Write", args)
 
     def test_add_dry_run_writes_nothing(self):
         repo = self.git_repo()
+        self.fake_claude()
         r = self.run_kit("procedures", "add", "release", repo,
                          "--docs-lang", "en", "--dry-run")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -475,6 +501,7 @@ class ProceduresTest(TempDir):
 
     def test_add_never_overwrites_a_procedure(self):
         repo = self.git_repo()
+        self.fake_claude()
         self.run_kit("procedures", "add", "release", repo)
         procedure = repo / ".agent-kit" / "procedures" / "release.md"
         procedure.write_text("# Custom\n")
@@ -482,6 +509,14 @@ class ProceduresTest(TempDir):
         self.assertEqual(r.returncode, 2)
         self.assertIn("already exists", r.stderr)
         self.assertEqual(procedure.read_text(), "# Custom\n")
+
+    def test_add_rejects_invalid_agent_output_without_writing(self):
+        repo = self.git_repo()
+        self.fake_claude(body="# Wrong title\n\nNo useful sections.\n")
+        r = self.run_kit("procedures", "add", "release", repo)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("must start with", r.stderr)
+        self.assertFalse((repo / ".agent-kit").exists())
 
     def test_list_and_show_procedures(self):
         repo = self.git_repo()

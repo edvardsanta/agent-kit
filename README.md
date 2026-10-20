@@ -129,7 +129,8 @@ same procedures while agent-specific configuration remains separate.
 
 ```bash
 agent-kit procedures init              # create README.md without overwriting it later
-agent-kit procedures add release       # create release.md from a safe template
+agent-kit procedures add release       # ask the local AI to write release.md
+agent-kit procedures add deploy --description "deploy production safely"
 agent-kit procedures path              # print the absolute directory path
 agent-kit procedures list              # list Markdown procedures
 agent-kit procedures show release      # print release.md
@@ -137,10 +138,21 @@ agent-kit procedures show release      # print release.md
 
 `procedures init` uses the repository's saved documentation language, supports `--check` and
 `--dry-run`, and can run from any repository subdirectory. `procedures add` initializes the
-directory when needed, supports nested names and `--title`, and never overwrites an existing file.
+directory when needed, supports nested names, `--title`, `--description`, `--agent` and `--trust`,
+and never overwrites an existing file. Claude or Codex inspects the repository read-only and
+returns the complete procedure; agent-kit validates the delimiters, title, sections and managed
+markers before writing it. The target repository's Claude configuration is ignored unless
+`--trust` is passed. `--dry-run` still calls the agent, but only prints the resulting diff.
 Keep one workflow per Markdown file.
 Temporary directories remain appropriate for disposable investigation artifacts; create or update
 a durable procedure only when the user explicitly asks to preserve it.
+
+## Code architecture
+
+`bin/agent-kit` is a thin executable entry point. The implementation lives in the `agent_kit`
+package: shared change planning, Git, language and agent adapters are separate from command modules
+under `agent_kit/commands/`. Each command owns its parser registration and runtime behavior, while
+AI subprocess policy is centralized in `agent_kit/agents.py`.
 
 ## Changing a rule for every project
 

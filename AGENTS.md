@@ -60,14 +60,20 @@ and `doctor`.
 
 ## Repository layout
 
-- `bin/agent-kit`: the whole CLI, a single stdlib-only Python 3 script (no `.py` extension).
+- `bin/agent-kit`: thin executable entry point; it also keeps compatibility exports for tests and
+  integrations that historically loaded the extensionless script as a Python module.
 - `bin/agent-init`: symlink to `agent-kit`; `main()` prepends `init` when invoked under that name.
+- `agent_kit/`: shared implementation (`changes.py`, `git.py`, `agents.py`, `languages.py`) and
+  CLI assembly in `cli.py`.
+- `agent_kit/commands/`: one module per command family; each exposes `register(subparsers)` and its
+  runtime handlers.
 - `rules/en.md`, `rules/pt.md`: bundled global baseline for the managed block. A target repo may
   add tracked overlays in `.agent-kit/rules/<lang>.md`.
 - `.agent-kit/procedures/` in a target repository contains tracked, reusable workflows shared by
   users and all agents; `procedures init` creates its README without overwriting it later.
 - `prompts/fill.md`: prompt for the project sections. `prompts/migrate.md` is appended to it for
-  `--migrate-claude`, and `prompts/add-rule.md` is used by `add-rule`.
+  `--migrate-claude`; `prompts/add-rule.md` and `prompts/add-procedure.md` drive generative resource
+  creation.
 - `tests/test_agent_init.py`: unittest suite; loads `bin/agent-kit` through `SourceFileLoader`.
 
 ## Environment and commands
@@ -89,7 +95,8 @@ and `doctor`.
   `ensure_ignored`, `ensure_no_coauthor`); keep each step idempotent.
 - User-facing failures raise `InitError`, which prints `agent-kit: error: ...` and exits 2. Progress
   goes through `log()` with the `[agent-kit]` prefix.
-- Each subcommand is a `run_<name>(args)` wired in `build_parser()` via `set_defaults(func=...)`.
+- Each command module registers its own parser and wires handlers with `set_defaults(func=...)`;
+  `agent_kit/cli.py` only assembles those modules and handles user-facing errors.
 - Global rules are resolved by `rules_file()`: `<lang>.md` in `user_rules_dir()`, else bundled
   `rules/<lang>.md`. `user_rules_dir()` is `$AGENT_KIT_RULES` if set, else `$XDG_CONFIG_HOME`
   (or `~/.config`) + `/agent-kit/rules`. Project overlays come from `.agent-kit/rules/<lang>.md`.
@@ -98,6 +105,9 @@ and `doctor`.
   tracked overlay; global remains the default for backward compatibility.
 - `procedures path/init/add/list/show` resolve the Git root from any subdirectory. Procedure paths
   must stay inside `.agent-kit/procedures/`; initialization and creation never overwrite files.
+- `procedures add` requires Claude or Codex, runs it with read-only repository access, validates
+  its delimited Markdown response, and never overwrites an existing procedure. `--dry-run` calls
+  the agent but writes nothing.
 - How the agent fills `AGENTS.md`:
   - The agent never edits files. `generate_project_sections` runs it read-only before the pending
     repository changes are applied:
