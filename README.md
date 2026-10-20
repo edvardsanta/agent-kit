@@ -2,6 +2,9 @@
 
 Personal CLI to standardize `AGENTS.md` / `CLAUDE.md` across projects.
 
+The proposed first-release command surface and behavioral guarantees are documented in
+[`docs/cli-contract.md`](docs/cli-contract.md).
+
 ## Install
 
 ```bash

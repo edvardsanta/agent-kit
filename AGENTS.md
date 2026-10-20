@@ -67,6 +67,8 @@ and `doctor`.
   CLI assembly in `cli.py`.
 - `agent_kit/commands/`: one module per command family; each exposes `register(subparsers)` and its
   runtime handlers.
+- `docs/cli-contract.md`: proposed first-release command grammar and behavioral guarantees; align
+  parser changes with this contract instead of growing the surface ad hoc.
 - `rules/en.md`, `rules/pt.md`: bundled global baseline for the managed block. A target repo may
   add tracked overlays in `.agent-kit/rules/<lang>.md`.
 - `.agent-kit/procedures/` in a target repository contains tracked, reusable workflows shared by
