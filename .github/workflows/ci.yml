@@ -62,19 +62,19 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           agent-kit --version
           agent-init --help > /dev/null
+      # exactly what users run (`irm ... | iex`), without any PATH fix-up afterwards
       - if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          ./install.ps1
-          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + $env:Path
+          Get-Content -Raw install.ps1 | Invoke-Expression
           agent-kit --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           agent-init --help | Out-Null
           if ($LASTEXITCODE -ne 0) { exit 1 }
-      # Windows PowerShell 5.1 is what `irm | iex` often runs in; it also covers reinstalling
+      # Windows PowerShell 5.1 is what many machines run; this also covers reinstalling
       - if: runner.os == 'Windows'
         shell: powershell
         run: |
-          ./install.ps1
-          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + $env:Path
+          Get-Content -Raw install.ps1 | Invoke-Expression
           agent-kit --version
           if ($LASTEXITCODE -ne 0) { exit 1 }

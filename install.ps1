@@ -22,6 +22,15 @@
         & $args[0] @($args | Select-Object -Skip 1)
         if ($LASTEXITCODE -ne 0) { Fail "$($args[0]) failed with exit code $LASTEXITCODE" }
     }
+    # persist for new terminals and apply now, so agent-kit works right after `irm | iex`
+    function AddToPath($Dir) {
+        $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+        if (($UserPath -split ';') -notcontains $Dir) {
+            [Environment]::SetEnvironmentVariable('Path', "$UserPath;$Dir".Trim(';'), 'User')
+            Say "added $Dir to your user PATH"
+        }
+        if (($env:Path -split ';') -notcontains $Dir) { $env:Path = "$Dir;$env:Path" }
+    }
 
     if (-not (Has 'git')) { Fail 'git is required; install Git for Windows and run this again' }
 
@@ -58,8 +67,14 @@
 
     Say "installing $Source with $Installer"
     switch ($Installer) {
-        'uv' { Run uv tool install --force --python $Python $Source }
-        'pipx' { Run pipx install --force --python $Python $Source }
+        'uv' {
+            Run uv tool install --force --python $Python $Source
+            AddToPath ("$(uv tool dir --bin)".Trim())
+        }
+        'pipx' {
+            Run pipx install --force --python $Python $Source
+            AddToPath ("$(pipx environment --value PIPX_BIN_DIR)".Trim())
+        }
         'venv' {
             $Venv = Join-Path $DataDir 'venv'
             if (Test-Path $Venv) { Remove-Item -Recurse -Force $Venv }
@@ -71,19 +86,10 @@
                 $Target = Join-Path $Venv "Scripts\$Command.exe"
                 Set-Content -Encoding ascii (Join-Path $BinDir "$Command.cmd") "@`"$Target`" %*"
             }
-            $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-            if (($UserPath -split ';') -notcontains $BinDir) {
-                [Environment]::SetEnvironmentVariable('Path', ($UserPath.TrimEnd(';') + ";$BinDir").TrimStart(';'), 'User')
-                Say "added $BinDir to your user PATH"
-            }
-            $env:Path = "$env:Path;$BinDir"
+            AddToPath $BinDir
         }
     }
 
-    if (Has 'agent-kit') {
-        Say "installed $(agent-kit --version)"
-        Say 'open a new terminal if agent-kit is not found there'
-    } else {
-        Say 'installed, but agent-kit is not on PATH yet; open a new terminal'
-    }
+    if (-not (Has 'agent-kit')) { Fail 'installed, but agent-kit is still not on PATH' }
+    Say "installed $(agent-kit --version); try: agent-kit doctor"
 }
