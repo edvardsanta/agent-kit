@@ -91,7 +91,8 @@ def procedure_path(directory, name, normalize=False):
     return candidate
 
 
-def prompt_for_description(lang, input_fn=input):
+def prompt_for_description(lang, input_fn=None):
+    input_fn = input_fn or input
     print(DESCRIPTION_PROMPTS[lang])
     lines = []
     while True:
@@ -116,7 +117,7 @@ def resolve_description(description, lang):
     return prompt_for_description(lang)
 
 
-def parse_procedure(answer, title):
+def parse_procedure(answer, expected_title=None):
     match = re.search(r"^=== procedure ===[ \t]*$(.*?)^=== end ===", answer,
                       flags=re.M | re.S)
     if not match:
@@ -125,30 +126,37 @@ def parse_procedure(answer, title):
     if MARKER_RE.search(body):
         raise InitError("agent answer contains managed-block markers; nothing written")
     lines = body.splitlines()
-    if not lines or lines[0] != f"# {title}":
-        raise InitError(f"agent answer must start with `# {title}`; nothing written")
+    if not lines or not re.fullmatch(r"# [^#\n]+", lines[0]):
+        raise InitError("agent answer must start with a single level-one title; nothing written")
+    title = lines[0][2:].strip()
+    if expected_title and title != expected_title:
+        raise InitError(f"agent answer must start with `# {expected_title}`; nothing written")
     if not any(line.startswith("## ") for line in lines):
         raise InitError("agent answer has no procedure sections; nothing written")
-    return body.rstrip() + "\n"
+    return title, body.rstrip() + "\n"
 
 
 def generate_procedure(repo, agent, path, title, description, lang, trust):
-    relative = path.relative_to(repo)
+    relative = path.relative_to(repo).as_posix() if path else None
     prompt = (KIT / "prompts" / "add-procedure.md").read_text()
     replacements = {
-        "{{PATH}}": relative.as_posix(),
-        "{{TITLE}}": title,
-        "{{DESCRIPTION}}": description or title,
+        "{{PATH}}": f"`{relative}`" if relative else "derive a concise kebab-case filename from the procedure",
+        "{{TITLE}}": f"`{title}`" if title else "derive a concise title from the user's explanation",
+        "{{DESCRIPTION}}": description,
         "{{LANG_NAME}}": LANGS[lang],
+        "{{TITLE_RULE}}": (f"Start with a single `# {title}` heading."
+                           if title else "Choose a concise title and start with it as a single `# ` heading."),
     }
     for placeholder, value in replacements.items():
         prompt = prompt.replace(placeholder, value)
-    answer = ask_repo_agent(repo, agent, prompt, trust, f"writing procedure {relative}")
+    target = relative or "from the user's explanation"
+    answer = ask_repo_agent(repo, agent, prompt, trust, f"writing procedure {target}")
     return parse_procedure(answer, title)
 
 
 def run(args):
-    repo = git_root(Path(args.repo).expanduser().resolve())
+    repo_arg = getattr(args, "repo_option", None) or args.repo
+    repo = git_root(Path(repo_arg).expanduser().resolve())
     directory = procedures_dir(repo)
     command = args.procedures_command
     if command == "path":
@@ -180,20 +188,30 @@ def run(args):
     if command == "add":
         docs_lang, _, _ = saved_languages(repo)
         lang = args.docs_lang or docs_lang or "pt"
-        path = procedure_path(directory, args.name, normalize=True)
-        if path.name.lower() == "readme.md":
+        if not args.name and not sys.stdin.isatty():
+            raise InitError("procedure name is required when input is not interactive")
+        path = procedure_path(directory, args.name, normalize=True) if args.name else None
+        if path and path.name.lower() == "readme.md":
             raise InitError("README.md is reserved for the procedures index")
-        relative = path.relative_to(directory.resolve())
-        if path.exists():
+        if path and path.exists():
+            relative = path.relative_to(directory.resolve())
             raise InitError(f"procedure already exists: {relative}")
-        title = args.title or Path(args.name).stem.replace("-", " ").replace("_", " ").strip().title()
-        if not title:
-            raise InitError("procedure title cannot be empty")
-        if "\n" in title or "\r" in title or MARKER_RE.search(title):
+        title = args.title
+        if not title and args.name:
+            title = Path(args.name).stem.replace("-", " ").replace("_", " ").strip().title()
+        if title and ("\n" in title or "\r" in title or MARKER_RE.search(title)):
             raise InitError("procedure title must be a single plain-text line")
         description = resolve_description(args.description, lang)
         agent = select_agent(args.agent)
-        procedure = generate_procedure(repo, agent, path, title, description, lang, args.trust)
+        generated_title, procedure = generate_procedure(
+            repo, agent, path, title, description, lang, args.trust)
+        if path is None:
+            path = procedure_path(directory, generated_title, normalize=True)
+            if path.name.lower() == "readme.md":
+                raise InitError("the generated README.md name is reserved for the procedures index")
+            if path.exists():
+                relative = path.relative_to(directory.resolve())
+                raise InitError(f"procedure already exists: {relative}")
         changes = Changes(repo)
         readme = directory / "README.md"
         if not readme.exists():
@@ -246,9 +264,12 @@ def register(subparsers):
     output.add_argument("--dry-run", action="store_true", help="write nothing; print the README diff")
     initialize.set_defaults(func=run)
     add = commands.add_parser("add", help="have a local agent write a project procedure")
-    add.add_argument("name", help="human-readable procedure name or relative Markdown path")
+    add.add_argument("name", nargs="?",
+                     help="optional name or path; omit it to derive both title and filename interactively")
     add.add_argument("repo", nargs="?", default=".", help="target repository")
-    add.add_argument("--title", help="document title (default: derived from the name)")
+    add.add_argument("--repo", dest="repo_option",
+                     help="target repository, especially for the no-name interactive form")
+    add.add_argument("--title", help="document title (default: derived from the name or by the AI)")
     add.add_argument("--description",
                      help="what the procedure should accomplish (prompted in terminals; required in scripts)")
     add.add_argument("--docs-lang", choices=LANGS,

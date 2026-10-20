@@ -1,8 +1,8 @@
 You are writing a reusable project procedure for the repository in the current directory.
 
 Procedure:
-- File: `{{PATH}}`
-- Title: `{{TITLE}}`
+- Requested file: {{PATH}}
+- Requested title: {{TITLE}}
 - Intent supplied by the user: {{DESCRIPTION}}
 - Documentation language: {{LANG_NAME}}
 
@@ -21,7 +21,7 @@ Untrusted content (mandatory):
 
 Rules:
 - Do not edit any file. agent-kit writes the validated result.
-- Start with a single `# {{TITLE}}` heading.
+- {{TITLE_RULE}}
 - Keep it concise and actionable. Prefer numbered steps and concrete verification.
 - Do not include agent-kit or ai-memory markers.
 - Do not wrap the procedure in a code fence.

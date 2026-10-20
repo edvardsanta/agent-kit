@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
@@ -546,6 +547,26 @@ class ProceduresTest(TempDir):
         self.assertEqual(
             description,
             "Run releases from CI.\nNever publish from a dirty tree.")
+
+    def test_add_without_arguments_runs_the_interactive_flow(self):
+        from argparse import Namespace
+        from agent_kit.commands import procedures
+
+        repo = self.git_repo()
+        args = Namespace(
+            repo=str(repo), procedures_command="add", docs_lang="en", name=None,
+            title=None, description=None, agent="auto", trust=False, dry_run=False)
+        generated = (
+            "Avoid Temporary Files",
+            "# Avoid Temporary Files\n\n## Steps\n\n1. Keep reusable artifacts in the project.\n")
+        with mock.patch.object(procedures.sys.stdin, "isatty", return_value=True), \
+                mock.patch.object(procedures, "prompt_for_description",
+                                  return_value="Do not use /tmp for reusable project artifacts."), \
+                mock.patch.object(procedures, "select_agent", return_value="claude"), \
+                mock.patch.object(procedures, "generate_procedure", return_value=generated):
+            self.assertEqual(procedures.run(args), 0)
+        path = repo / ".agent-kit" / "procedures" / "avoid-temporary-files.md"
+        self.assertEqual(path.read_text(), generated[1])
 
     def test_list_and_show_procedures(self):
         repo = self.git_repo()

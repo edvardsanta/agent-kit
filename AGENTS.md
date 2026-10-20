@@ -107,8 +107,9 @@ and `doctor`.
   must stay inside `.agent-kit/procedures/`; initialization and creation never overwrite files.
 - `procedures add` requires Claude or Codex, runs it with read-only repository access, validates
   its delimited Markdown response, slugifies human-readable names, and never overwrites an existing
-  procedure. Without `--description`, terminals get a multiline prompt while non-interactive callers
-  fail instead of hanging. `--dry-run` calls the agent but writes nothing.
+  procedure. With no arguments, terminals get a multiline flow and the AI derives the title and
+  filename; non-interactive callers must provide both a name and `--description`. `--dry-run` calls
+  the agent but writes nothing.
 - How the agent fills `AGENTS.md`:
   - The agent never edits files. `generate_project_sections` runs it read-only before the pending
     repository changes are applied:

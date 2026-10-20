@@ -129,8 +129,9 @@ same procedures while agent-specific configuration remains separate.
 
 ```bash
 agent-kit procedures init              # create README.md without overwriting it later
-agent-kit procedures add release       # ask the local AI to write release.md
-agent-kit procedures add deploy --description "deploy production safely"
+agent-kit procedures add               # interactive: explain it; AI derives title and filename
+agent-kit procedures add --repo ~/src/app  # interactive flow for another repository
+agent-kit procedures add deploy --description "deploy production safely"  # scripts
 agent-kit procedures path              # print the absolute directory path
 agent-kit procedures list              # list Markdown procedures
 agent-kit procedures show release      # print release.md
@@ -139,10 +140,11 @@ agent-kit procedures show release      # print release.md
 `procedures init` uses the repository's saved documentation language, supports `--check` and
 `--dry-run`, and can run from any repository subdirectory. `procedures add` initializes the
 directory when needed, supports nested names, `--title`, `--description`, `--agent` and `--trust`,
-and never overwrites an existing file. Human-readable names are converted to safe paths, so
-`"don't use tmp"` becomes `dont-use-tmp.md`. When `--description` is omitted in a terminal, an
-interactive multiline prompt asks for the goal, context and constraints; scripts and other
-non-interactive callers must pass `--description`. Claude or Codex inspects the repository read-only and
+and never overwrites an existing file. With no arguments, it starts an interactive multiline flow:
+the user explains the goal, context and constraints, then the AI derives the title and safe filename.
+When a human-readable name is supplied, it is converted to a safe path, so `"don't use tmp"`
+becomes `dont-use-tmp.md`. Scripts and other non-interactive callers must pass both the name and
+`--description`. Claude or Codex inspects the repository read-only and
 returns the complete procedure; agent-kit validates the delimiters, title, sections and managed
 markers before writing it. The target repository's Claude configuration is ignored unless
 `--trust` is passed. `--dry-run` still calls the agent, but only prints the resulting diff.
