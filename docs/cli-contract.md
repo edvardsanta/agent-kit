@@ -1,7 +1,7 @@
 # CLI contract
 
-Status: proposed contract for the first public pre-release. Runtime behavior is not stable until
-the implementation is aligned with this document.
+Status: accepted contract for the first public pre-release. Runtime behavior remains pre-release
+until every item in the delivery sequence is complete.
 
 ## Product boundary
 
@@ -184,14 +184,15 @@ profiles are explicit command options rather than hidden global state.
 
 ## Delivery sequence
 
-1. Align parser definitions and help output with this command tree; remove compatibility paths.
-2. Centralize shared repository, agent, preview, output, and exit-status behavior.
-3. Complete procedure discovery with a small generated index referenced by the managed rules.
-4. Maintain `pyproject.toml`, packaged rules/prompts, and console-script installation on every
-   supported platform.
-5. Add CI for supported Python versions on Linux, macOS, and Windows.
-6. Dogfood initialization, synchronization, rules, and procedures in representative repositories.
-7. Reconcile the current version constant with the first tagged release and publish migration notes.
+1. [x] Align parser definitions and help output with this command tree; remove compatibility paths.
+2. [x] Centralize shared agent, memory, preview, output, and exit-status behavior.
+3. [x] Complete procedure discovery with a generated index referenced by the managed rules.
+4. [x] Add `pyproject.toml`, packaged rules/prompts, and cross-platform console scripts.
+5. [x] Add unit and installed-wheel CI coverage across Linux, macOS, and Windows.
+6. [ ] Finish dogfooding initialization, synchronization, rules, and procedures in representative
+   repositories. agent-kit itself now uses its generated procedure registry.
+7. [ ] Reconcile the current version constant with the first tagged release and publish migration
+   notes.
 
 Features outside this sequence remain deferred until the first-release contract is implemented and
 tested.
