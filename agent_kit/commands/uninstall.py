@@ -86,7 +86,9 @@ def finish_in_background(command, paths):
         steps.append(subprocess.list2cmdline(command))
     steps += [f'rmdir /s /q "{path}"' if path.is_dir() else f'del /f /q "{path}"' for path in paths]
     flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    subprocess.Popen(["cmd", "/c", " & ".join(steps)], creationflags=flags, close_fds=True,
+    # one string, not a list: list2cmdline would escape the inner quotes as \" and cmd misreads them;
+    # /s makes cmd strip exactly the outer pair
+    subprocess.Popen(f'cmd /d /s /c "{" & ".join(steps)}"', creationflags=flags, close_fds=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
