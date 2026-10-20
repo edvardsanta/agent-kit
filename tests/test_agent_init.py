@@ -19,6 +19,11 @@ ai = module_from_spec(spec_from_loader("agent_init", _loader))
 _loader.exec_module(ai)
 
 
+EN_README = "# Sample\n\nThis is a sample project for the tests. It is used to check how the tool works.\n"
+PT_README = ("# Exemplo\n\nEste é um projeto de exemplo para os testes. Ele é usado para verificar "
+             "como a ferramenta funciona e não tem código.\n")
+
+
 class TempDir(unittest.TestCase):
     def setUp(self):
         # resolved: macOS temp dirs live under the /var -> /private/var symlink, and git
@@ -40,11 +45,19 @@ class TempDir(unittest.TestCase):
             os.environ["AGENT_KIT_RULES"] = self._old_rules
         shutil.rmtree(self.tmp)
 
-    def git_repo(self, name="repo"):
+    def git_repo(self, name="repo", readme=EN_README):
         repo = self.tmp / name
         repo.mkdir(parents=True)
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        if readme:
+            # gives language detection something to read
+            (repo / "README.md").write_text(readme)
         return repo
+
+    def commit(self, repo, *subjects):
+        for subject in subjects:
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+                            "--allow-empty", "-m", subject], cwd=repo, check=True)
 
     def run_cli(self, *args, script=SCRIPT, env=None):
         env = {**os.environ, "PATH": str(self.bin), **(env or {})}
@@ -85,9 +98,17 @@ class UpsertBlockTest(unittest.TestCase):
         self.assertEqual(ai.upsert_block(once, self.block), once)
 
     def test_render_block_records_langs(self):
-        block = ai.render_block("pt", "en")
+        block = ai.render_block("pt", "en", "pt")
         self.assertTrue(block.startswith(
             "<!-- agent-kit:start docs-lang=pt chat-lang=pt git-lang=en -->"))
+        self.assertIn("Converse com o usuário em português do Brasil", block)
+        self.assertNotIn("{{", block)
+
+    def test_render_block_without_chat_omits_the_chat_rule(self):
+        block = ai.render_block("en", "en")
+        self.assertTrue(block.startswith("<!-- agent-kit:start docs-lang=en git-lang=en -->"))
+        self.assertNotIn("Talk with the user", block)
+        self.assertIn("Write documentation in English", block)
         self.assertNotIn("{{", block)
 
 
@@ -104,7 +125,8 @@ class PlanTest(TempDir):
         repo = self.git_repo()
         (repo / "AGENTS.md").write_text(
             "<!-- agent-kit:start lang=en git-lang=pt -->\n<!-- agent-kit:end -->\n")
-        self.assertEqual(ai.saved_languages(repo), ("en", "en", "pt"))
+        # legacy lang= only fixes docs; chat is no longer pinned implicitly
+        self.assertEqual(ai.saved_languages(repo), ("en", None, "pt"))
         (repo / "AGENTS.md").write_text(ai.render_block("en", "en", "pt"))
         self.assertEqual(ai.saved_languages(repo), ("en", "pt", "en"))
 
@@ -189,6 +211,65 @@ class CliTest(TempDir):
         self.assertIn("Write documentation in English", text)
         self.assertEqual(ai.saved_languages(repo), ("en", "pt", "en"))
 
+    def test_detects_docs_language_from_readme(self):
+        repo = self.git_repo(readme=PT_README)
+        r = self.run_cli(repo, "--agent", "none")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("detected documentation language: pt", r.stderr)
+        self.assertEqual(ai.saved_languages(repo), ("pt", None, "pt"))
+
+    def test_detects_git_language_from_commits(self):
+        repo = self.git_repo()
+        self.commit(repo, "feat: adiciona suporte para o novo formato",
+                    "Corrige a validação do arquivo de configuração")
+        r = self.run_cli(repo, "--agent", "none")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(ai.saved_languages(repo), ("en", None, "pt"))
+        self.assertIn("Commits, branches, issues and PRs in português do Brasil",
+                      (repo / "AGENTS.md").read_text())
+
+    def test_docs_language_falls_back_to_commits(self):
+        repo = self.git_repo(readme=None)
+        self.commit(repo, "Add the first version of the parser", "Fix a crash on empty input")
+        self.assertEqual(self.run_cli(repo, "--agent", "none").returncode, 0)
+        self.assertEqual(ai.saved_languages(repo), ("en", None, "en"))
+
+    def test_undetectable_language_is_an_error(self):
+        repo = self.git_repo(readme="# x\n")
+        r = self.run_cli(repo, "--agent", "none")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("--docs-lang", r.stderr)
+        self.assertFalse((repo / "AGENTS.md").exists())
+
+    def test_flag_and_saved_language_win_over_detection(self):
+        repo = self.git_repo(readme=PT_README)
+        self.run_cli(repo, "--docs-lang", "en", "--agent", "none")
+        self.assertEqual(ai.saved_languages(repo)[0], "en")
+        r = self.run_cli(repo, "--agent", "none")
+        self.assertNotIn("detected documentation language", r.stderr)
+        self.assertEqual(ai.saved_languages(repo)[0], "en")
+
+    def test_chat_rule_only_when_chosen(self):
+        repo = self.git_repo()
+        self.run_cli(repo, "--agent", "none")
+        self.assertNotIn("Talk with the user", (repo / "AGENTS.md").read_text())
+        self.run_cli(repo, "--chat-lang", "pt", "--agent", "none")
+        self.assertIn("Talk with the user in português do Brasil", (repo / "AGENTS.md").read_text())
+        self.run_cli(repo, "--agent", "none")
+        self.assertEqual(ai.saved_languages(repo)[1], "pt")
+
+    def test_docs_detection_ignores_managed_blocks(self):
+        repo = self.git_repo(readme=PT_README)
+        english = "This is the text of the block and it is in English for the tests.\n" * 20
+        (repo / "AGENTS.md").write_text(
+            f"# AGENTS.md\n\n<!-- ai-memory:start -->\n{english}<!-- ai-memory:end -->\n")
+        self.assertEqual(ai.detect_docs_language(repo), "pt")
+
+    def test_classifier_ignores_code(self):
+        text = ("Este projeto não usa nada do que está no exemplo.\n"
+                "```\nfor the and of to is in with the and\n```\n")
+        self.assertEqual(ai.classify_language(text * 2), "pt")
+
     def test_missing_agent_changes_nothing(self):
         repo = self.git_repo()
         r = self.run_cli(repo)
@@ -218,7 +299,9 @@ class CliTest(TempDir):
         self.assertFalse((sub / "AGENTS.md").exists())
 
     def test_upstream_profile_hides_all_local_artifacts(self):
-        repo = self.git_repo()
+        # a clean clone: languages come from its history, and status must stay empty
+        repo = self.git_repo(readme=None)
+        self.commit(repo, "Add support for the new parser", "Fix the build on macOS")
         r = self.run_cli(repo, "--profile", "upstream", "--agent", "none")
         self.assertEqual(r.returncode, 0, r.stderr)
         exclude = (repo / ".git" / "info" / "exclude").read_text().splitlines()

@@ -77,6 +77,15 @@ The same command supports people and scripts without guessing from incomplete in
 - Commands resolve the Git root from subdirectories.
 - Paths written by a resource command cannot escape that resource's directory.
 
+### Languages
+
+- Documentation and Git languages resolve as explicit flag, then the saved marker, then detection
+  from the repository's Markdown docs and commit subjects. Each falls back to the other.
+- There is no hardcoded default language. When neither language can be resolved, `init` and
+  `procedures` exit 2 and ask for `--docs-lang`.
+- The chat language is never detected. Without `--chat-lang` or a saved value, the managed block
+  contains no chat rule.
+
 ### Agent selection and trust
 
 Generative commands accept:
@@ -159,7 +168,7 @@ Remove these before the first release:
 | `agent-kit add-rule` | `agent-kit rules add` |
 | `agent-kit rules --init` | `agent-kit rules init` |
 | `agent-kit init --all` | `agent-kit sync` |
-| `agent-kit init --lang` | `--chat-lang` and `--docs-lang` |
+| `agent-kit init --lang` | `--docs-lang` (optionally `--chat-lang`) |
 | `agent-kit init --hide-agent-files` | `--profile upstream` |
 | positional repositories under `procedures` | `--repo PATH` |
 

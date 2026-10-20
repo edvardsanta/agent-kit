@@ -19,7 +19,11 @@ def log(message):
 from .changes import Changes  # noqa: E402,F401
 from .languages import (  # noqa: E402,F401
     LANGS,
+    classify_language,
+    detect_docs_language,
+    detect_git_language,
     render_block,
+    resolve_languages,
     rules_file,
     saved_languages,
     saved_langs,

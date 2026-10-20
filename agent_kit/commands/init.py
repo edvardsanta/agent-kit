@@ -12,7 +12,8 @@ from .. import KIT, InitError, log
 from ..agents import ask_repo_agent, select_agent
 from ..changes import Changes
 from ..git import find_repos, git_common_dir, git_root, tracked_paths
-from ..languages import END, LANGS, MARKER_RE, has_marker, render_block, saved_languages, upsert_block
+from ..languages import (END, LANGS, MARKER_RE, has_marker, render_block, resolve_languages,
+                         saved_languages, upsert_block)
 
 AI_MEMORY_START = "<!-- ai-memory:start -->"
 SUSPICIOUS_RE = re.compile(
@@ -145,14 +146,6 @@ def add_project_sections(changes, sections):
     return suspicious_lines(old, sections)
 
 
-def resolve_languages(repo, args):
-    old_docs, old_chat, old_git = saved_languages(repo)
-    docs_lang = args.docs_lang or old_docs or "pt"
-    chat_lang = args.chat_lang or old_chat or docs_lang
-    git_lang = args.git_lang or old_git or docs_lang
-    return docs_lang, chat_lang, git_lang
-
-
 def check_existing_claude(repo, args):
     path = repo / "CLAUDE.md"
     if not path.exists() or "@AGENTS.md" in path.read_text() or args.migrate_claude or args.keep_claude:
@@ -167,7 +160,7 @@ def run_one(repo, args):
     requested_agent = args.agent or "auto"
     if args.migrate_claude and requested_agent == "none":
         raise InitError("--migrate-claude needs an agent to merge CLAUDE.md into AGENTS.md; drop --agent none")
-    docs_lang, chat_lang, git_lang = resolve_languages(repo, args)
+    docs_lang, chat_lang, git_lang = resolve_languages(repo, args.docs_lang, args.git_lang, args.chat_lang)
     changes = plan(repo, docs_lang, git_lang, chat_lang, args.tracked,
                    args.hide_agent_files, args.migrate_claude, args.keep_claude)
     if args.check:
@@ -219,7 +212,7 @@ def run_all(root, args):
             log(f"SKIP {name}: marker has no saved language; run `agent-kit init {repo} --docs-lang <pt|en>` once")
             continue
         try:
-            changes = plan(repo, docs_lang, git_lang or docs_lang, chat_lang or docs_lang)
+            changes = plan(repo, docs_lang, git_lang or docs_lang, chat_lang)
         except InitError as error:
             log(f"ERROR {name}: {error}")
             errors += 1
@@ -277,11 +270,15 @@ def register(subparsers):
                         help="target repository (default: current directory)")
     parser.add_argument("--profile", choices=["own", "upstream"],
                         help="safe defaults for your repository or a third-party clone")
-    parser.add_argument("--chat-lang", choices=LANGS, help="language agents use to talk with you")
+    parser.add_argument("--chat-lang", choices=LANGS,
+                        help="pin the language agents use to talk with you (default: saved value, else "
+                             "no chat rule)")
     parser.add_argument("--docs-lang", choices=LANGS,
-                        help="documentation and managed-rules language (default: saved value, else pt)")
+                        help="documentation and managed-rules language (default: saved value, else "
+                             "detected from README/docs, else the Git language)")
     parser.add_argument("--git-lang", choices=LANGS,
-                        help="language of commits/issues/PRs (default: saved value, else docs language)")
+                        help="language of commits/issues/PRs (default: saved value, else detected "
+                             "from commit subjects, else the docs language)")
     parser.add_argument("--agent", choices=["auto", "claude", "codex", "none"],
                         help="who fills project sections (default: auto, Claude then Codex)")
     parser.add_argument("--memory", choices=["off", "compact", "full"],

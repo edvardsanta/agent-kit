@@ -30,7 +30,8 @@ macOS, and Windows with the oldest and newest supported Python versions.
 ```bash
 agent-init . --profile own                          # your repo: track .worktrees/ in .gitignore
 agent-init ~/repos/rpcs3 --profile upstream         # third-party clone: hide local artifacts
-agent-init . --chat-lang pt --docs-lang en --git-lang en
+agent-init . --docs-lang en --git-lang en              # override detected languages
+agent-init . --chat-lang pt                         # also pin the agent's chat language
 agent-init . --agent codex                          # choose explicitly; default is auto
 agent-init . --agent none                           # deterministic part only
 agent-init . --memory off                           # skip ai-memory integration
@@ -62,8 +63,14 @@ Claude settings because `.git/info/exclude` cannot hide changes to tracked files
    conventions and pitfalls (`agent_kit/prompts/fill.md`); agent-kit writes them outside the
    managed blocks.
 
-Idempotent: chat, documentation, and Git languages are stored independently in the marker, so
-running it again preserves each choice. The command can be run from any repository subdirectory.
+Languages: the documentation language is detected from `README*`, `CONTRIBUTING*`, `AGENTS.md`
+and `docs/**/*.md` (code blocks ignored), and the Git language from recent commit subjects. If only
+one is detectable it is used for both; if neither is, `init` exits 2 and asks for `--docs-lang`.
+The chat language is not detected: without `--chat-lang` the managed block has no chat rule and
+your agent's own settings decide.
+
+Idempotent: the chosen languages are stored independently in the marker, so running it again
+preserves each choice instead of detecting again. The command can be run from any repository subdirectory.
 It never commits.
 
 Requested data and diffs are written to stdout. Progress, warnings, review notices, prompts, and
@@ -118,6 +125,7 @@ agent-kit rules add "never git push without asking"
 Both files have `{{CHAT_LANG_NAME}}`, `{{DOCS_LANG_NAME}}`, and `{{GIT_LANG_NAME}}`
 placeholders, and they should say the same thing in each language. Existing personal templates
 using the legacy `{{LANG_NAME}}` placeholder continue to work when chat and docs use one language.
+Lines with `{{CHAT_LANG_NAME}}` are dropped when no chat language was chosen.
 
 ### Project-specific rules
 
@@ -153,7 +161,7 @@ agent-kit procedures list              # list Markdown procedures
 agent-kit procedures show release      # print release.md
 ```
 
-`procedures init` uses the repository's saved documentation language, supports `--check` and
+`procedures init` uses the repository's saved (else detected) documentation language, supports `--check` and
 `--dry-run`, and can run from any repository subdirectory. `procedures add` initializes the
 directory when needed, supports nested names, `--title`, `--description`, `--agent` and `--trust`,
 and never overwrites an existing file. With no arguments, it starts an interactive multiline flow:

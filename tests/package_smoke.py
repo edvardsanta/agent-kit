@@ -32,6 +32,8 @@ def main():
         repo = root / "repo"
         repo.mkdir()
         run(["git", "init", "-q"], repo, env)
+        (repo / "README.md").write_text(
+            "This is a smoke test for the installed package and it checks that it works.\n")
         run([agent_init, str(repo), "--agent", "none", "--memory", "off"], root, env)
         agents = repo / "AGENTS.md"
         if not agents.is_file() or "agent-kit:start" not in agents.read_text():

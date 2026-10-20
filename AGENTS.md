@@ -137,8 +137,14 @@ and `doctor`.
   - `split_agents_md` replaces only the text between the agent-kit end marker and the ai-memory start marker.
   - Added lines that match `SUSPICIOUS_RE` (URLs, curl/sudo, hooks, permissions, tokens…) are
     logged under `REVIEW:` after writing.
-- The managed block's start marker stores `docs-lang=`, `chat-lang=` and `git-lang=`, read by
-  `saved_languages`. Legacy `lang=` markers remain readable. Never write a literal marker elsewhere.
+- The managed block's start marker stores `docs-lang=`, optional `chat-lang=` and `git-lang=`,
+  read by `saved_languages`. Legacy `lang=` markers remain readable as the docs language only.
+  Never write a literal marker elsewhere.
+- `resolve_languages` picks docs and Git languages as flag, then saved marker, then detection
+  (`detect_docs_language` / `detect_git_language`), each falling back to the other; with nothing
+  detectable it raises `InitError`. There is no hardcoded default language. Chat is never
+  detected: without `--chat-lang` or a saved value, `render_block` drops the `{{CHAT_LANG_NAME}}`
+  line and the marker has no `chat-lang=`.
 - Templates use `{{CHAT_LANG_NAME}}`, `{{DOCS_LANG_NAME}}` and `{{GIT_LANG_NAME}}`; legacy
   personal templates using `{{LANG_NAME}}` work when chat and docs share a language.
 - `agent_kit/rules/en.md` and `agent_kit/rules/pt.md` must stay in sync: change both when editing a

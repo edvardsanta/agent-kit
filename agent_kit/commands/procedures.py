@@ -9,7 +9,7 @@ from .. import KIT, InitError, log
 from ..agents import ask_repo_agent, select_agent
 from ..changes import Changes
 from ..git import git_root
-from ..languages import LANGS, MARKER_RE, saved_languages
+from ..languages import LANGS, MARKER_RE, resolve_docs_language
 from .init import suspicious_lines
 
 PROCEDURES_README = {
@@ -216,8 +216,7 @@ def run(args):
         print(directory)
         return 0
     if command == "init":
-        docs_lang, _, _ = saved_languages(repo)
-        lang = args.docs_lang or docs_lang or "pt"
+        lang = resolve_docs_language(repo, args.docs_lang)
         readme = directory / "README.md"
         changes = Changes(repo)
         if not readme.exists():
@@ -240,8 +239,7 @@ def run(args):
         log("add Markdown procedure files to .agent-kit/procedures/ and commit them with the project")
         return 0
     if command == "add":
-        docs_lang, _, _ = saved_languages(repo)
-        lang = args.docs_lang or docs_lang or "pt"
+        lang = resolve_docs_language(repo, args.docs_lang)
         if not args.name and not sys.stdin.isatty():
             raise InitError("procedure name is required when input is not interactive")
         path = procedure_path(directory, args.name, normalize=True) if args.name else None

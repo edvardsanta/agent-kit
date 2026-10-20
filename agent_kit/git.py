@@ -27,6 +27,13 @@ def git_common_dir(repo):
     return (repo / result.stdout.strip()).resolve()
 
 
+def commit_subjects(repo, limit=50):
+    """Recent non-merge commit subjects; empty for a repository without commits."""
+    result = subprocess.run(["git", "log", "--no-merges", f"-n{limit}", "--format=%s"], cwd=repo,
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return result.stdout.splitlines() if result.returncode == 0 else []
+
+
 def tracked_paths(repo, paths):
     found = []
     for path in paths:
