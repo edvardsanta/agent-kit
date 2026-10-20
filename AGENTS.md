@@ -71,6 +71,8 @@ and `doctor`.
   runtime handlers.
 - `docs/cli-contract.md`: proposed first-release command grammar and behavioral guarantees; align
   parser changes with this contract instead of growing the surface ad hoc.
+- `docs/migration-0.1.md`: migration notes for command and option changes made before the first
+  tagged release.
 - `agent_kit/rules/en.md`, `agent_kit/rules/pt.md`: packaged global baseline for the managed block.
   A target repo may add tracked overlays in `.agent-kit/rules/<lang>.md`.
 - `.agent-kit/procedures/` in a target repository contains tracked, reusable workflows shared by
@@ -78,7 +80,7 @@ and `doctor`.
 - `agent_kit/prompts/fill.md`: packaged prompt for the project sections. `migrate.md` is appended to
   it for `--migrate-claude`; `add-rule.md` and `add-procedure.md` drive generative resource creation.
 - `pyproject.toml`: setuptools package metadata, package-data declarations, and the `agent-kit` /
-  `agent-init` cross-platform console entry points.
+  `agent-init` cross-platform console entry points. It reads the version from `agent_kit/__init__.py`.
 - `.github/workflows/ci.yml`: unit-test matrix on Linux/macOS and installed-wheel smoke matrix on
   Linux, macOS and Windows.
 - `tests/test_agent_init.py`: unittest suite; loads `bin/agent-kit` through `SourceFileLoader`.

@@ -3,7 +3,8 @@
 Personal CLI to standardize `AGENTS.md` / `CLAUDE.md` across projects.
 
 The proposed first-release command surface and behavioral guarantees are documented in
-[`docs/cli-contract.md`](docs/cli-contract.md).
+[`docs/cli-contract.md`](docs/cli-contract.md). If you used an earlier development checkout, see
+the [`0.1 migration notes`](docs/migration-0.1.md).
 
 ## Install
 

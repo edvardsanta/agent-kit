@@ -191,7 +191,7 @@ profiles are explicit command options rather than hidden global state.
 5. [x] Add unit and installed-wheel CI coverage across Linux, macOS, and Windows.
 6. [ ] Finish dogfooding initialization, synchronization, rules, and procedures in representative
    repositories. agent-kit itself now uses its generated procedure registry.
-7. [ ] Reconcile the current version constant with the first tagged release and publish migration
+7. [x] Reconcile the current version constant with the first tagged release and publish migration
    notes.
 
 Features outside this sequence remain deferred until the first-release contract is implemented and
