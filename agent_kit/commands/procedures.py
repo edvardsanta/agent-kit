@@ -93,11 +93,12 @@ def procedure_path(directory, name, normalize=False):
 
 def prompt_for_description(lang, input_fn=None):
     input_fn = input_fn or input
-    print(DESCRIPTION_PROMPTS[lang])
+    print(DESCRIPTION_PROMPTS[lang], file=sys.stderr)
     lines = []
     while True:
         try:
-            line = input_fn("> " if not lines else "| ")
+            print("> " if not lines else "| ", end="", file=sys.stderr, flush=True)
+            line = input_fn("")
         except EOFError:
             break
         if not line.strip():

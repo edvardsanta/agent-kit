@@ -55,6 +55,10 @@ Idempotent: chat, documentation, and Git languages are stored independently in t
 running it again preserves each choice. The command can be run from any repository subdirectory.
 It never commits.
 
+Requested data and diffs are written to stdout. Progress, warnings, review notices, prompts, and
+errors are written to stderr, so commands such as `procedures list`, `procedures show`, and
+`procedures path` can be safely piped.
+
 `--migrate-claude` needs an agent (it refuses `--agent none`), and `CLAUDE.md` is only replaced
 by the stub if the agent exits cleanly. An independent `CLAUDE.md` otherwise stops initialization
 before any write; use `--keep-claude` to keep it intentionally.

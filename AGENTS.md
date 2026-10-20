@@ -97,7 +97,8 @@ and `doctor`.
 - `plan()` composes the deterministic steps (`ensure_agents_md`, `ensure_claude_md`,
   `ensure_ignored`, `ensure_no_coauthor`); keep each step idempotent.
 - User-facing failures raise `InitError`, which prints `agent-kit: error: ...` and exits 2. Progress
-  goes through `log()` with the `[agent-kit]` prefix.
+  goes through `log()` with the `[agent-kit]` prefix on stderr; reserve stdout for requested data
+  and diffs.
 - `--memory off|compact|full` is the public ai-memory contract. Keep ai-memory-specific command
   arguments inside `install_ai_memory`; profiles may choose a default but must not expose them.
 - Each command module registers its own parser and wires handlers with `set_defaults(func=...)`;

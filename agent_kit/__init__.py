@@ -1,5 +1,6 @@
 """Shared public API for agent-kit."""
 
+import sys
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parent.parent
@@ -11,7 +12,7 @@ class InitError(Exception):
 
 
 def log(message):
-    print(f"[agent-kit] {message}")
+    print(f"[agent-kit] {message}", file=sys.stderr)
 
 
 # Keep the small Python API used by the test suite and existing integrations.
