@@ -819,5 +819,55 @@ class FillTest(TempDir):
         self.assertIn("CLAUDE.md", "\n".join(self.args()))  # migrate prompt was sent
 
 
+class UninstallTest(TempDir):
+    def setUp(self):
+        super().setUp()
+        from agent_kit.commands import uninstall
+        self.uninstall = uninstall
+
+    def test_detects_uv_and_pipx_by_their_receipts(self):
+        for method, receipt in (("uv", "uv-receipt.toml"), ("pipx", "pipx_metadata.json")):
+            prefix = self.tmp / method / "agent-kit"
+            prefix.mkdir(parents=True)
+            (prefix / receipt).write_text("")
+            self.assertEqual(self.uninstall.detect_install(prefix), (method, None))
+
+    @unittest.skipIf(os.name == "nt", "the Windows installer uses .cmd wrappers, not symlinks")
+    def test_installer_venv_removes_only_its_own_shims(self):
+        prefix = self.tmp / "share" / "agent-kit" / "venv"
+        (prefix / "bin").mkdir(parents=True)
+        (prefix / "bin" / "agent-kit").write_text("")
+        bin_dir = self.tmp / "local-bin"
+        bin_dir.mkdir()
+        (bin_dir / "agent-kit").symlink_to(prefix / "bin" / "agent-kit")
+        (bin_dir / "agent-init").symlink_to(self.tmp / "elsewhere")  # not ours: kept
+        (prefix / self.uninstall.INSTALL_MARKER).write_text(f"{bin_dir}\n")
+        _, command, paths, _ = self.uninstall.plan_uninstall(prefix)
+        self.assertIsNone(command)
+        self.assertEqual(paths, [bin_dir / "agent-kit", prefix.parent])
+
+    def test_purge_adds_the_rules_dir_only_at_its_default_location(self):
+        prefix = self.tmp / "uv-tool"
+        prefix.mkdir()
+        (prefix / "uv-receipt.toml").write_text("")
+        config = self.tmp / "config"
+        (config / "agent-kit" / "rules").mkdir(parents=True)
+        with mock.patch("shutil.which", return_value="/usr/bin/uv"), \
+                mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            os.environ.pop("AGENT_KIT_RULES")
+            _, command, paths, _ = self.uninstall.plan_uninstall(prefix, purge=True)
+            self.assertEqual(command, ["/usr/bin/uv", "tool", "uninstall", "agent-kit"])
+            self.assertEqual(paths, [config / "agent-kit"])
+            os.environ["AGENT_KIT_RULES"] = str(self.rules)
+            _, _, paths, _ = self.uninstall.plan_uninstall(prefix, purge=True)
+            self.assertEqual(paths, [])
+
+    def test_unknown_installation_changes_nothing(self):
+        # --dry-run: even run from an installed copy, the suite must never uninstall it
+        r = self.run_kit("uninstall", "--dry-run")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("could not tell how agent-kit was installed", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

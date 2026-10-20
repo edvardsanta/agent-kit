@@ -39,9 +39,8 @@ agent-kit doctor
 
 If you prefer to install it yourself, any Python tool installer works with the tag URL:
 `pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.0.dev0` (or `uv tool install`).
-Uninstall with the same tool (`pipx uninstall agent-kit`, `uv tool uninstall agent-kit`); for the
-private virtualenv, delete its directory and the `agent-kit`/`agent-init` entries in
-`~/.local/bin` (Windows: `%LOCALAPPDATA%\agent-kit`).
+To remove it, run `agent-kit uninstall` (add `--purge` to also delete your personal rules). It
+works for the installers, `uv tool` and `pipx`; for anything else, use the tool you installed with.
 
 `agent-init` is an alias for `agent-kit init`; use `agent-kit` for the other subcommands. The
 installed package includes its bundled rules and prompts, so it does not depend on a source

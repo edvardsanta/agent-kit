@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from . import InitError, VERSION
-from .commands import doctor, init, procedures, rules, sync
+from .commands import doctor, init, procedures, rules, sync, uninstall
 
 DESCRIPTION = """agent-kit: standardize AGENTS.md / CLAUDE.md across projects.
 
@@ -25,6 +25,7 @@ def build_parser():
     rules.register(subparsers)
     procedures.register(subparsers)
     doctor.register(subparsers)
+    uninstall.register(subparsers)
     return parser
 
 

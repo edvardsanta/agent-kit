@@ -72,6 +72,8 @@ case $INSTALLER in
         rm -rf "$DATA_DIR/venv"
         "$PYTHON" -m venv "$DATA_DIR/venv"
         "$DATA_DIR/venv/bin/python" -m pip install --quiet --disable-pip-version-check "$SOURCE"
+        # lets `agent-kit uninstall` recognize this installation and find the shims
+        printf '%s\n' "$BIN_DIR" > "$DATA_DIR/venv/agent-kit-install"
         mkdir -p "$BIN_DIR"
         ln -sf "$DATA_DIR/venv/bin/agent-kit" "$BIN_DIR/agent-kit"
         ln -sf "$DATA_DIR/venv/bin/agent-init" "$BIN_DIR/agent-init"
