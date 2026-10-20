@@ -55,7 +55,8 @@ the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and
 Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules`, `procedures`
 and `doctor`.
 `init` has two parts:
-- A deterministic part: the managed rules block, the `CLAUDE.md` import stub, the `.worktrees/` ignore entry, turning off Claude Code attribution, and ai-memory routing.
+- A deterministic part: the managed rules block, the `CLAUDE.md` import stub, the `.worktrees/`
+  ignore entry, turning off Claude Code attribution, and optional ai-memory routing.
 - An optional generative part: `claude -p` or `codex exec` reads the repo without changing anything and prints the project sections, and agent-kit writes them into `AGENTS.md`.
 
 ## Repository layout
@@ -97,6 +98,8 @@ and `doctor`.
   `ensure_ignored`, `ensure_no_coauthor`); keep each step idempotent.
 - User-facing failures raise `InitError`, which prints `agent-kit: error: ...` and exits 2. Progress
   goes through `log()` with the `[agent-kit]` prefix.
+- `--memory off|compact|full` is the public ai-memory contract. Keep ai-memory-specific command
+  arguments inside `install_ai_memory`; profiles may choose a default but must not expose them.
 - Each command module registers its own parser and wires handlers with `set_defaults(func=...)`;
   `agent_kit/cli.py` only assembles those modules and handles user-facing errors.
 - Global rules are resolved by `rules_file()`: `<lang>.md` in `user_rules_dir()`, else bundled

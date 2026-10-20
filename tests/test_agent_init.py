@@ -146,6 +146,14 @@ class PlanTest(TempDir):
 
 
 class CliTest(TempDir):
+    def fake_ai_memory(self):
+        log = self.tmp / "ai-memory-args.txt"
+        stub = self.bin / "ai-memory"
+        stub.write_text(
+            f'#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a"; done > {log}\n')
+        stub.chmod(0o755)
+        return log
+
     def test_agent_none_then_check_and_dry_run(self):
         repo = self.git_repo()
         self.assertEqual(self.run_cli(repo, "--docs-lang", "en", "--chat-lang", "en",
@@ -229,6 +237,30 @@ class CliTest(TempDir):
         self.assertIn("no files were changed", r.stderr)
         self.assertEqual(agents.read_text(), "tracked instructions\n")
 
+    def test_memory_modes_hide_ai_memory_implementation_flags(self):
+        memory_args = self.fake_ai_memory()
+
+        compact = self.git_repo("compact")
+        self.assertEqual(self.run_cli(compact, "--agent", "none").returncode, 0)
+        self.assertEqual(memory_args.read_text().splitlines(),
+                         ["install-instructions", "--target", "AGENTS.md", "--compact"])
+
+        memory_args.unlink()
+        full = self.git_repo("full")
+        self.assertEqual(self.run_cli(full, "--agent", "none", "--memory", "full").returncode, 0)
+        self.assertEqual(memory_args.read_text().splitlines(),
+                         ["install-instructions", "--target", "AGENTS.md"])
+
+        memory_args.unlink()
+        off = self.git_repo("off")
+        self.assertEqual(self.run_cli(off, "--agent", "none", "--memory", "off").returncode, 0)
+        self.assertFalse(memory_args.exists())
+
+        upstream = self.git_repo("upstream")
+        self.assertEqual(self.run_cli(upstream, "--profile", "upstream",
+                                      "--agent", "none").returncode, 0)
+        self.assertFalse(memory_args.exists())
+
     def test_check_and_dry_run_are_mutually_exclusive(self):
         repo = self.git_repo()
         self.assertEqual(self.run_cli(repo, "--check", "--dry-run").returncode, 2)
@@ -284,7 +316,7 @@ class CliTest(TempDir):
 
     def test_removed_init_aliases_are_rejected(self):
         repo = self.git_repo()
-        for flag in ("--all", "--lang", "--hide-agent-files"):
+        for flag in ("--all", "--lang", "--hide-agent-files", "--full-memory", "--no-skills"):
             self.assertEqual(self.run_cli(repo, flag, "en").returncode, 2)
         self.assertEqual(self.run_kit("add-rule", "x").returncode, 2)
         self.assertEqual(self.run_kit("rules", "--init").returncode, 2)

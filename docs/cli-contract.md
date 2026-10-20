@@ -166,17 +166,17 @@ Remove these before the first release:
 Keep `agent-init` only through the first pre-release as a documented shortcut for `agent-kit init`.
 Its removal or stabilization must be decided before declaring the CLI stable.
 
-## Options that need consolidation
+## Memory integration
 
-The current memory flags (`--full-memory` and `--no-skills`) expose one integration's internal
-model. Before the first release, replace them with one bounded option:
+Memory integration uses one bounded option:
 
 ```text
 --memory off|compact|full
 ```
 
-The implementation may translate that value into ai-memory arguments. Other commands must not know
-about ai-memory installation details.
+The implementation translates that value into ai-memory arguments. Other commands do not know
+about ai-memory installation details. The default is `compact`; the `upstream` profile defaults to
+`off` unless the user selects a mode explicitly.
 
 `--tracked` should also be absorbed by the `own` profile once profile behavior is covered by tests.
 `upstream` remains the safe profile for third-party clones. Until profile persistence is designed,

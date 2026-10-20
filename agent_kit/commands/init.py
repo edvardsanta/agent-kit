@@ -87,15 +87,15 @@ def plan(repo, docs_lang, git_lang, chat_lang=None, tracked=False, hide_agent_fi
     return changes
 
 
-def install_ai_memory(repo, full, skills):
+def install_ai_memory(repo, mode):
+    if mode == "off":
+        return
     if not shutil.which("ai-memory"):
         log("WARNING: ai-memory not found in PATH; routing block skipped")
         return
     command = ["ai-memory", "install-instructions", "--target", "AGENTS.md"]
-    if not full:
+    if mode == "compact":
         command.append("--compact")
-    if not skills:
-        command.append("--no-skills")
     result = subprocess.run(command, cwd=repo, capture_output=True, text=True)
     status = "installed" if result.returncode == 0 else f"FAILED\n{result.stderr.strip()}"
     log(f"ai-memory: routing block {status}")
@@ -178,12 +178,13 @@ def run_one(repo, args):
         return 0
     if args.dry_run:
         changes.diff()
-        steps = ["ai-memory install-instructions"]
+        steps = [] if args.memory == "off" else [f"ai-memory install-instructions ({args.memory})"]
         if requested_agent != "none":
             steps.append(f"{requested_agent} to fill project sections")
         if args.migrate_claude:
             steps.append("replace CLAUDE.md with the import stub if the agent succeeds")
-        log("would also run: " + "; ".join(steps))
+        if steps:
+            log("would also run: " + "; ".join(steps))
         return 0
     agent = select_agent(requested_agent, allow_none=True)
     flagged = []
@@ -195,7 +196,7 @@ def run_one(repo, args):
     if agent != "none" and changes.pending:
         changes.diff()
     changes.apply()
-    install_ai_memory(repo, args.full_memory, not args.no_skills)
+    install_ai_memory(repo, args.memory)
     if flagged:
         log("REVIEW: the agent wrote lines that run commands, fetch URLs or touch permissions; "
             "check they come from the project and not from injected text:")
@@ -250,9 +251,10 @@ def apply_profile(repo, args):
         if args.trust:
             raise InitError("--profile upstream cannot be combined with --trust")
         args.hide_agent_files = True
-        args.no_skills = True
+        args.memory = args.memory or "off"
     elif args.profile == "own":
         args.tracked = True
+    args.memory = args.memory or "compact"
     if args.hide_agent_files:
         tracked = tracked_paths(repo, ["AGENTS.md", "CLAUDE.md", ".claude/settings.local.json"])
         if tracked:
@@ -282,8 +284,8 @@ def register(subparsers):
                         help="language of commits/issues/PRs (default: saved value, else docs language)")
     parser.add_argument("--agent", choices=["auto", "claude", "codex", "none"],
                         help="who fills project sections (default: auto, Claude then Codex)")
-    parser.add_argument("--full-memory", action="store_true",
-                        help="inline the full ai-memory guidance instead of --compact")
+    parser.add_argument("--memory", choices=["off", "compact", "full"],
+                        help="ai-memory integration level (default: compact; upstream: off)")
     parser.add_argument("--tracked", action="store_true",
                         help="put .worktrees/ in the tracked .gitignore instead of .git/info/exclude")
     claude_mode = parser.add_mutually_exclusive_group()
@@ -291,8 +293,6 @@ def register(subparsers):
                              help="move an existing CLAUDE.md into AGENTS.md and replace it with the import stub")
     claude_mode.add_argument("--keep-claude", action="store_true",
                              help="keep an independent existing CLAUDE.md intentionally")
-    parser.add_argument("--no-skills", action="store_true",
-                        help="do not install ai-memory skills into the project")
     parser.add_argument("--trust", action="store_true",
                         help="allow the agent to load the target repo's Claude config and MCP servers")
     output = parser.add_mutually_exclusive_group()

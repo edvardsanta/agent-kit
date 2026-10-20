@@ -24,6 +24,8 @@ agent-init ~/repos/rpcs3 --profile upstream         # third-party clone: hide lo
 agent-init . --chat-lang pt --docs-lang en --git-lang en
 agent-init . --agent codex                          # choose explicitly; default is auto
 agent-init . --agent none                           # deterministic part only
+agent-init . --memory off                           # skip ai-memory integration
+agent-init . --memory full                          # install the expanded routing guidance
 agent-init . --trust                                # your own repo: agent loads its hooks/MCP (ai-memory)
 agent-init . --migrate-claude                       # old CLAUDE.md -> AGENTS.md + stub
 agent-init . --keep-claude                          # intentionally keep an independent CLAUDE.md
@@ -44,7 +46,8 @@ Claude settings because `.git/info/exclude` cannot hide changes to tracked files
 2. `CLAUDE.md` becomes just `@AGENTS.md`.
 3. `.worktrees/` goes into `.git/info/exclude` (use `--tracked` for the versioned `.gitignore`).
 4. `.claude/settings.local.json` with empty `attribution` (turns off Claude Code's Co-Authored-By).
-5. `ai-memory install-instructions` (routing block + skills; `--no-skills`, `--full-memory`).
+5. Unless `--memory off` is selected, `ai-memory install-instructions` installs its routing block
+   and skills. The default is `compact`; `--profile upstream` defaults to `off`.
 6. An agent (`claude -p` or `codex exec`) reads the repo and answers with overview, commands,
    conventions and pitfalls (`prompts/fill.md`); agent-kit writes them outside the managed blocks.
 
