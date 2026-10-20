@@ -21,7 +21,9 @@ _loader.exec_module(ai)
 
 class TempDir(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        # resolved: macOS temp dirs live under the /var -> /private/var symlink, and git
+        # reports resolved paths
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
         # PATH with only git, so ai-memory/claude/codex can never run from the tests
         self.bin = self.tmp / "bin"
         self.bin.mkdir()
