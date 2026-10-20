@@ -40,7 +40,8 @@ the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and
   or agent-specific directories.
 - Treat procedures as version-controlled project documentation shared by users and all agents.
 - Create or update a procedure only when the user explicitly asks to preserve it.
-- Check for a relevant procedure before performing a documented workflow.
+- If `.agent-kit/procedures/INDEX.md` exists, read it before planning a workflow.
+- When an index entry matches the task, read the full procedure before performing that workflow.
 
 ### Memory
 
@@ -54,28 +55,45 @@ the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and
 `agent-kit` is a personal CLI that standardizes `AGENTS.md` / `CLAUDE.md` across repositories.
 Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules`, `procedures`
 and `doctor`.
-`add-rule` and `init --all` are compatibility aliases. `init` has two parts:
-- A deterministic part: the managed rules block, the `CLAUDE.md` import stub, the `.worktrees/` ignore entry, turning off Claude Code attribution, and ai-memory routing.
+`init` has two parts:
+- A deterministic part: the managed rules block, the `CLAUDE.md` import stub, the `.worktrees/`
+  ignore entry, turning off Claude Code attribution, and optional ai-memory routing.
 - An optional generative part: `claude -p` or `codex exec` reads the repo without changing anything and prints the project sections, and agent-kit writes them into `AGENTS.md`.
 
 ## Repository layout
 
-- `bin/agent-kit`: the whole CLI, a single stdlib-only Python 3 script (no `.py` extension).
+- `bin/agent-kit`: thin executable entry point; it also keeps compatibility exports for tests and
+  integrations that historically loaded the extensionless script as a Python module.
 - `bin/agent-init`: symlink to `agent-kit`; `main()` prepends `init` when invoked under that name.
-- `rules/en.md`, `rules/pt.md`: bundled global baseline for the managed block. A target repo may
-  add tracked overlays in `.agent-kit/rules/<lang>.md`.
+- `agent_kit/`: shared implementation (`changes.py`, `git.py`, `agents.py`, `languages.py`) and
+  CLI assembly in `cli.py`.
+- `agent_kit/commands/`: one module per command family; each exposes `register(subparsers)` and its
+  runtime handlers.
+- `docs/cli-contract.md`: proposed first-release command grammar and behavioral guarantees; align
+  parser changes with this contract instead of growing the surface ad hoc.
+- `docs/migration-0.1.md`: migration notes for command and option changes made before the first
+  tagged release.
+- `agent_kit/rules/en.md`, `agent_kit/rules/pt.md`: packaged global baseline for the managed block.
+  A target repo may add tracked overlays in `.agent-kit/rules/<lang>.md`.
 - `.agent-kit/procedures/` in a target repository contains tracked, reusable workflows shared by
   users and all agents; `procedures init` creates its README without overwriting it later.
-- `prompts/fill.md`: prompt for the project sections. `prompts/migrate.md` is appended to it for
-  `--migrate-claude`, and `prompts/add-rule.md` is used by `add-rule`.
+- `agent_kit/prompts/fill.md`: packaged prompt for the project sections. `migrate.md` is appended to
+  it for `--migrate-claude`; `add-rule.md` and `add-procedure.md` drive generative resource creation.
+- `pyproject.toml`: setuptools package metadata, package-data declarations, and the `agent-kit` /
+  `agent-init` cross-platform console entry points. It reads the version from `agent_kit/__init__.py`.
+- `.github/workflows/ci.yml`: unit-test matrix on Linux/macOS and installed-wheel smoke matrix on
+  Linux, macOS and Windows.
 - `tests/test_agent_init.py`: unittest suite; loads `bin/agent-kit` through `SourceFileLoader`.
 
 ## Environment and commands
 
-- No dependencies: Python 3 stdlib plus `git`. There is no CI, linter or formatter config in the repo.
+- No runtime dependencies: Python 3.10+ stdlib plus `git`. There is no linter or formatter config.
 - `make test`: runs `python3 -m unittest discover -s tests`.
 - Single test (fast): `python3 -m unittest discover -s tests -k <test_name>`.
-- `make install`: symlinks `bin/agent-kit` as both `agent-kit` and `agent-init` into
+- Installed-wheel smoke test: build/install the wheel, then run `python tests/package_smoke.py`
+  outside the checkout; CI performs this on Linux, macOS, and Windows.
+- `pipx install .` builds and installs both console commands on Linux, macOS, or Windows.
+- `make install`: Unix-only checkout shortcut that symlinks `bin/agent-kit` as both commands into
   `$(PREFIX)/bin` (default `~/.local`).
 - To run without writing anything: `bin/agent-kit init <repo> --dry-run` prints the diff, `--check`
   exits 1 if anything is outdated, and `bin/agent-kit rules add "..." --dry-run` shows the rule diff.
@@ -88,16 +106,25 @@ and `doctor`.
 - `plan()` composes the deterministic steps (`ensure_agents_md`, `ensure_claude_md`,
   `ensure_ignored`, `ensure_no_coauthor`); keep each step idempotent.
 - User-facing failures raise `InitError`, which prints `agent-kit: error: ...` and exits 2. Progress
-  goes through `log()` with the `[agent-kit]` prefix.
-- Each subcommand is a `run_<name>(args)` wired in `build_parser()` via `set_defaults(func=...)`.
+  goes through `log()` with the `[agent-kit]` prefix on stderr; reserve stdout for requested data
+  and diffs.
+- `--memory off|compact|full` is the public ai-memory contract. Keep ai-memory-specific command
+  arguments inside `install_ai_memory`; profiles may choose a default but must not expose them.
+- Each command module registers its own parser and wires handlers with `set_defaults(func=...)`;
+  `agent_kit/cli.py` only assembles those modules and handles user-facing errors.
 - Global rules are resolved by `rules_file()`: `<lang>.md` in `user_rules_dir()`, else bundled
   `rules/<lang>.md`. `user_rules_dir()` is `$AGENT_KIT_RULES` if set, else `$XDG_CONFIG_HOME`
   (or `~/.config`) + `/agent-kit/rules`. Project overlays come from `.agent-kit/rules/<lang>.md`.
 - `rules add` checks the agent's answer in `parse_rules_answer` before writing anything: every
   language present, placeholders kept, first heading kept. `--scope project` writes an additive
   tracked overlay; global remains the default for backward compatibility.
-- `procedures path/init/list/show` resolve the Git root from any subdirectory. Procedure paths
-  must stay inside `.agent-kit/procedures/`, and initialization never overwrites its README.
+- `procedures path/init/add/list/show` resolve the Git root from any subdirectory. Procedure paths
+  must stay inside `.agent-kit/procedures/`; initialization and creation never overwrite files.
+- `procedures add` requires Claude or Codex, runs it with read-only repository access, validates
+  its delimited Markdown response, slugifies human-readable names, and never overwrites an existing
+  procedure. With no arguments, terminals get a multiline flow and the AI derives the title and
+  filename; non-interactive callers must provide both a name and `--description`. `--dry-run` calls
+  the agent but writes nothing.
 - How the agent fills `AGENTS.md`:
   - The agent never edits files. `generate_project_sections` runs it read-only before the pending
     repository changes are applied:
@@ -110,13 +137,19 @@ and `doctor`.
   - `split_agents_md` replaces only the text between the agent-kit end marker and the ai-memory start marker.
   - Added lines that match `SUSPICIOUS_RE` (URLs, curl/sudo, hooks, permissions, tokens…) are
     logged under `REVIEW:` after writing.
-- The managed block's start marker stores `docs-lang=`, `chat-lang=` and `git-lang=`, read by
-  `saved_languages`. Legacy `lang=` markers remain readable. Never write a literal marker elsewhere.
+- The managed block's start marker stores `docs-lang=`, optional `chat-lang=` and `git-lang=`,
+  read by `saved_languages`. Legacy `lang=` markers remain readable as the docs language only.
+  Never write a literal marker elsewhere.
+- `resolve_languages` picks docs and Git languages as flag, then saved marker, then detection
+  (`detect_docs_language` / `detect_git_language`), each falling back to the other; with nothing
+  detectable it raises `InitError`. There is no hardcoded default language. Chat is never
+  detected: without `--chat-lang` or a saved value, `render_block` drops the `{{CHAT_LANG_NAME}}`
+  line and the marker has no `chat-lang=`.
 - Templates use `{{CHAT_LANG_NAME}}`, `{{DOCS_LANG_NAME}}` and `{{GIT_LANG_NAME}}`; legacy
   personal templates using `{{LANG_NAME}}` work when chat and docs share a language.
-- `rules/en.md` and `rules/pt.md` must stay in sync: change both when editing a rule.
-- `sync` and the compatibility `--all` path only re-apply deterministic changes. `--all` rejects
-  per-repo flags; add new per-repo flags to that rejection list in `run_init`.
+- `agent_kit/rules/en.md` and `agent_kit/rules/pt.md` must stay in sync: change both when editing a
+  rule.
+- `sync` only re-applies deterministic changes and never invokes an agent.
 - Testing rules:
   - Tests point `AGENT_KIT_RULES` at a temp dir, so the user's real rules dir is never read.
   - Tests that call the CLI set `PATH` to a temp `bin` dir that holds only `git` plus any fake stubs

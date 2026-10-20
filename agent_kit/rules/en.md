@@ -37,7 +37,8 @@ the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and
   or agent-specific directories.
 - Treat procedures as version-controlled project documentation shared by users and all agents.
 - Create or update a procedure only when the user explicitly asks to preserve it.
-- Check for a relevant procedure before performing a documented workflow.
+- If `.agent-kit/procedures/INDEX.md` exists, read it before planning a workflow.
+- When an index entry matches the task, read the full procedure before performing that workflow.
 
 ### Memory
 

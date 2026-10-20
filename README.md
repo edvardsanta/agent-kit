@@ -2,25 +2,40 @@
 
 Personal CLI to standardize `AGENTS.md` / `CLAUDE.md` across projects.
 
+The proposed first-release command surface and behavioral guarantees are documented in
+[`docs/cli-contract.md`](docs/cli-contract.md). If you used an earlier development checkout, see
+the [`0.1 migration notes`](docs/migration-0.1.md).
+
 ## Install
 
 ```bash
-make install          # symlinks agent-kit and agent-init into ~/.local/bin
-make test             # stdlib unittest, no dependencies
-agent-kit doctor      # show which optional tools are available
+pipx install .                  # recommended on Linux, macOS and Windows
+python -m pip install .         # alternative standard Python installation
+make install                    # Unix checkout shortcut: symlinks into ~/.local/bin
+make test                       # stdlib unittest, no runtime dependencies
+agent-kit doctor                # show which optional tools are available
 agent-kit --version
 ```
 
 `agent-init` is an alias for `agent-kit init`. Use `agent-kit` for the other subcommands.
+The Python package installs both console commands and includes its bundled rules and prompts, so an
+installed wheel does not depend on the source checkout. On Windows, ensure the Python or pipx
+scripts directory is on `PATH`.
+
+CI runs the unit suite on Linux and macOS and builds, installs, and smoke-tests the wheel on Linux,
+macOS, and Windows with the oldest and newest supported Python versions.
 
 ## Usage
 
 ```bash
 agent-init . --profile own                          # your repo: track .worktrees/ in .gitignore
 agent-init ~/repos/rpcs3 --profile upstream         # third-party clone: hide local artifacts
-agent-init . --chat-lang pt --docs-lang en --git-lang en
+agent-init . --docs-lang en --git-lang en              # override detected languages
+agent-init . --chat-lang pt                         # also pin the agent's chat language
 agent-init . --agent codex                          # choose explicitly; default is auto
 agent-init . --agent none                           # deterministic part only
+agent-init . --memory off                           # skip ai-memory integration
+agent-init . --memory full                          # install the expanded routing guidance
 agent-init . --trust                                # your own repo: agent loads its hooks/MCP (ai-memory)
 agent-init . --migrate-claude                       # old CLAUDE.md -> AGENTS.md + stub
 agent-init . --keep-claude                          # intentionally keep an independent CLAUDE.md
@@ -31,25 +46,36 @@ agent-kit sync ~/repos                              # re-apply rules to all mana
 agent-kit procedures init                           # create shared project procedures
 ```
 
-`--lang` remains as a compatibility alias for `--chat-lang` plus `--docs-lang`.
-`init --all`, `--hide-agent-files`, `rules --init`, and `add-rule` also remain supported.
 The upstream profile refuses to modify an already tracked `AGENTS.md`, `CLAUDE.md`, or generated
 Claude settings because `.git/info/exclude` cannot hide changes to tracked files.
 
 ## What it does
 
-1. Inserts/updates the `<!-- agent-kit:start -->` block in `AGENTS.md` (rules in `rules/pt.md`, `rules/en.md`):
+1. Inserts/updates the `<!-- agent-kit:start -->` block in `AGENTS.md` (rules packaged under
+   `agent_kit/rules/`):
    language, no co-authorship, commit by batch, worktrees, project procedures and ai-memory usage.
 2. `CLAUDE.md` becomes just `@AGENTS.md`.
 3. `.worktrees/` goes into `.git/info/exclude` (use `--tracked` for the versioned `.gitignore`).
 4. `.claude/settings.local.json` with empty `attribution` (turns off Claude Code's Co-Authored-By).
-5. `ai-memory install-instructions` (routing block + skills; `--no-skills`, `--full-memory`).
+5. Unless `--memory off` is selected, `ai-memory install-instructions` installs its routing block
+   and skills. The default is `compact`; `--profile upstream` defaults to `off`.
 6. An agent (`claude -p` or `codex exec`) reads the repo and answers with overview, commands,
-   conventions and pitfalls (`prompts/fill.md`); agent-kit writes them outside the managed blocks.
+   conventions and pitfalls (`agent_kit/prompts/fill.md`); agent-kit writes them outside the
+   managed blocks.
 
-Idempotent: chat, documentation, and Git languages are stored independently in the marker, so
-running it again preserves each choice. The command can be run from any repository subdirectory.
+Languages: the documentation language is detected from `README*`, `CONTRIBUTING*`, `AGENTS.md`
+and `docs/**/*.md` (code blocks ignored), and the Git language from recent commit subjects. If only
+one is detectable it is used for both; if neither is, `init` exits 2 and asks for `--docs-lang`.
+The chat language is not detected: without `--chat-lang` the managed block has no chat rule and
+your agent's own settings decide.
+
+Idempotent: the chosen languages are stored independently in the marker, so running it again
+preserves each choice instead of detecting again. The command can be run from any repository subdirectory.
 It never commits.
+
+Requested data and diffs are written to stdout. Progress, warnings, review notices, prompts, and
+errors are written to stderr, so commands such as `procedures list`, `procedures show`, and
+`procedures path` can be safely piped.
 
 `--migrate-claude` needs an agent (it refuses `--agent none`), and `CLAUDE.md` is only replaced
 by the stub if the agent exits cleanly. An independent `CLAUDE.md` otherwise stops initialization
@@ -77,18 +103,18 @@ it produces becomes instructions for every agent that later works in that repo. 
   hooks, permissions, tokens, "ignore previous..."). The diff is always printed, and nothing is committed.
 
 This reduces the risk; it does not remove it. Read the `AGENTS.md` diff before committing, especially
-in repos you cloned from someone else. `sync`, `--all`, `--check` and `--dry-run` never call an
+in repos you cloned from someone else. `sync`, `--check` and deterministic `--dry-run` never call an
 agent. Rule editing runs the agent with no tools in an empty directory.
 
 ## Your rules
 
-The bundled `rules/` are defaults. Your own rules live outside the checkout, so `git pull`
+The bundled `agent_kit/rules/` files are defaults. Your own rules live outside the checkout, so `git pull`
 never conflicts with them:
 
 - the user rules dir is `$AGENT_KIT_RULES` if set, else `~/.config/agent-kit/rules`
   (`$XDG_CONFIG_HOME` is respected);
 - `<lang>.md` is read from there, and a language missing there falls back to the bundled
-  `rules/<lang>.md`.
+  `agent_kit/rules/<lang>.md`.
 
 ```bash
 agent-kit rules show          # show global rule files
@@ -99,6 +125,7 @@ agent-kit rules add "never git push without asking"
 Both files have `{{CHAT_LANG_NAME}}`, `{{DOCS_LANG_NAME}}`, and `{{GIT_LANG_NAME}}`
 placeholders, and they should say the same thing in each language. Existing personal templates
 using the legacy `{{LANG_NAME}}` placeholder continue to work when chat and docs use one language.
+Lines with `{{CHAT_LANG_NAME}}` are dropped when no chat language was chosen.
 
 ### Project-specific rules
 
@@ -118,9 +145,6 @@ with the rule placed in the right section, translated, and merged with any rule 
 It runs with no tools in an empty directory. agent-kit checks the answer (every language present,
 placeholders and first heading kept) before writing to your rules dir, and prints the diff.
 
-Global rule editing remains available through `agent-kit rules add "..."`; `agent-kit add-rule`
-is its compatibility alias.
-
 ## Project procedures
 
 Reusable workflows belong to the project rather than to Claude, Codex or a temporary scratchpad.
@@ -129,19 +153,43 @@ same procedures while agent-specific configuration remains separate.
 
 ```bash
 agent-kit procedures init              # create README.md without overwriting it later
+agent-kit procedures add               # interactive: explain it; AI derives title and filename
+agent-kit procedures add --repo ~/src/app  # interactive flow for another repository
+agent-kit procedures add deploy --description "deploy production safely"  # scripts
 agent-kit procedures path              # print the absolute directory path
 agent-kit procedures list              # list Markdown procedures
 agent-kit procedures show release      # print release.md
 ```
 
-`procedures init` uses the repository's saved documentation language, supports `--check` and
-`--dry-run`, and can run from any repository subdirectory. Keep one workflow per Markdown file.
+`procedures init` uses the repository's saved (else detected) documentation language, supports `--check` and
+`--dry-run`, and can run from any repository subdirectory. `procedures add` initializes the
+directory when needed, supports nested names, `--title`, `--description`, `--agent` and `--trust`,
+and never overwrites an existing file. With no arguments, it starts an interactive multiline flow:
+the user explains the goal, context and constraints, then the AI derives the title and safe filename.
+When a human-readable name is supplied, it is converted to a safe path, so `"don't use tmp"`
+becomes `dont-use-tmp.md`. Scripts and other non-interactive callers must pass both the name and
+`--description`. Claude or Codex inspects the repository read-only and
+returns the complete procedure; agent-kit validates the delimiters, title, sections and managed
+markers before writing it. The target repository's Claude configuration is ignored unless
+`--trust` is passed. `--dry-run` still calls the agent, but only prints the resulting diff.
+Each generated procedure starts with a one-sentence purpose summary. agent-kit maintains a compact
+`INDEX.md` containing titles, relative links and those summaries; `procedures init` safely rebuilds
+the index without overwriting the user-owned `README.md`. The managed rules tell agents to consult
+the index and load a matching procedure before performing its workflow.
+Keep one workflow per Markdown file.
 Temporary directories remain appropriate for disposable investigation artifacts; create or update
 a durable procedure only when the user explicitly asks to preserve it.
 
+## Code architecture
+
+`bin/agent-kit` is a thin executable entry point. The implementation lives in the `agent_kit`
+package: shared change planning, Git, language and agent adapters are separate from command modules
+under `agent_kit/commands/`. Each command owns its parser registration and runtime behavior, while
+AI subprocess policy is centralized in `agent_kit/agents.py`.
+
 ## Changing a rule for every project
 
-Edit your rules (or use `add-rule`), then:
+Edit your rules (or use `agent-kit rules add`), then:
 
 ```bash
 agent-kit sync ~/repos --check   # see outdated repos and required migrations
