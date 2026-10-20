@@ -22,7 +22,8 @@ def detect_install(prefix):
         return "pipx", None
     marker = prefix / INSTALL_MARKER
     if marker.is_file():
-        return "installer", Path(marker.read_text(encoding="utf-8").strip())
+        # utf-8-sig: Windows PowerShell 5.1 writes UTF-8 with a BOM
+        return "installer", Path(marker.read_text(encoding="utf-8-sig").strip())
     raise InitError(
         f"could not tell how agent-kit was installed (Python prefix {prefix}); remove it with the "
         "tool you used, e.g. `python -m pip uninstall agent-kit`, or delete the `make install` "
@@ -74,8 +75,9 @@ def remove_user_path_entry(entry):
             value, kind = winreg.QueryValueEx(key, "Path")
         except FileNotFoundError:
             return
+        same = os.path.normcase(entry.rstrip("\\"))
         kept = [part for part in value.split(";")
-                if part and os.path.normcase(part) != os.path.normcase(entry)]
+                if part and os.path.normcase(part.rstrip("\\")) != same]
         winreg.SetValueEx(key, "Path", 0, kind, ";".join(kept))
 
 

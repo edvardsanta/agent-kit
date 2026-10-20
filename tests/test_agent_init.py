@@ -846,6 +846,14 @@ class UninstallTest(TempDir):
         self.assertIsNone(command)
         self.assertEqual(paths, [bin_dir / "agent-kit", prefix.parent])
 
+    def test_installer_marker_may_have_a_bom(self):
+        prefix = self.tmp / "venv"
+        prefix.mkdir()
+        marker = prefix / self.uninstall.INSTALL_MARKER
+        marker.write_text("\ufeffC:\\agent-kit\\bin\r\n", encoding="utf-8")
+        self.assertEqual(self.uninstall.detect_install(prefix),
+                         ("installer", Path("C:\\agent-kit\\bin")))
+
     def test_purge_adds_the_rules_dir_only_at_its_default_location(self):
         prefix = self.tmp / "uv-tool"
         prefix.mkdir()

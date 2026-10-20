@@ -81,7 +81,7 @@
             Run $Python -m venv $Venv
             Run (Join-Path $Venv 'Scripts\python.exe') -m pip install --quiet --disable-pip-version-check $Source
             # lets `agent-kit uninstall` recognize this installation and find the shims
-            Set-Content -Encoding utf8 (Join-Path $Venv 'agent-kit-install') $BinDir
+            [IO.File]::WriteAllText((Join-Path $Venv 'agent-kit-install'), $BinDir)  # no BOM
             # small wrappers, so PATH gets agent-kit without the venv's python and pip
             New-Item -ItemType Directory -Force $BinDir | Out-Null
             foreach ($Command in @('agent-kit', 'agent-init')) {
