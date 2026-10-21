@@ -26,13 +26,28 @@ def latest_release():
     return releases[0]["tag_name"]
 
 
+def base_python(prefix):
+    """The interpreter the venv at `prefix` was created from, read from its pyvenv.cfg."""
+    config = {}
+    if (prefix / "pyvenv.cfg").is_file():
+        for line in (prefix / "pyvenv.cfg").read_text(encoding="utf-8").splitlines():
+            key, _, value = line.partition("=")
+            config[key.strip()] = value.strip()
+    candidates = [config.get("executable")]
+    if config.get("home"):
+        candidates += [str(Path(config["home"]) / name) for name in ("python3", "python.exe")]
+    return next((path for path in candidates if path and Path(path).is_file()), None)
+
+
 def plan_upgrade(prefix, source):
     """The command that reinstalls agent-kit from `source` the same way it was installed."""
     method, _ = detect_install(prefix)
-    if method == "uv":
-        return [installer_tool("uv"), "tool", "install", "--force", "--reinstall", source]
-    if method == "pipx":
-        return [installer_tool("pipx"), "install", "--force", source]
+    if method in ("uv", "pipx"):
+        command = [installer_tool("uv"), "tool", "install", "--force", "--reinstall"] if method == "uv" \
+            else [installer_tool("pipx"), "install", "--force"]
+        # keep the interpreter: pipx reuses the venv, and another Python breaks its stdlib
+        python = base_python(prefix)
+        return command + (["--python", python] if python else []) + [source]
     # the install.sh / install.ps1 venv: its shims point into it, so they keep working
     return [sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check",
             "--force-reinstall", source]

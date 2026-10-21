@@ -910,6 +910,11 @@ class UpgradeTest(TempDir):
             (prefix / receipt).write_text("")
             with mock.patch("shutil.which", return_value=f"/bin/{method}"):
                 self.assertEqual(self.upgrade.plan_upgrade(prefix, source), expected)
+            # the venv's own interpreter is kept
+            (prefix / "pyvenv.cfg").write_text(f"home = /nowhere\nexecutable = {sys.executable}\n")
+            with mock.patch("shutil.which", return_value=f"/bin/{method}"):
+                self.assertEqual(self.upgrade.plan_upgrade(prefix, source),
+                                 expected[:-1] + ["--python", sys.executable, source])
 
     def test_installer_venv_upgrades_with_its_own_pip(self):
         prefix = self.tmp / "venv"
