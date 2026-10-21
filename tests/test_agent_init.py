@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import shutil
@@ -875,6 +876,22 @@ class UninstallTest(TempDir):
         r = self.run_kit("uninstall", "--dry-run")
         self.assertEqual(r.returncode, 2)
         self.assertIn("could not tell how agent-kit was installed", r.stderr)
+
+
+class EncodingTest(unittest.TestCase):
+    def test_text_io_names_its_encoding(self):
+        # Windows defaults to the locale code page (cp1252), which cannot read UTF-8 AGENTS.md files
+        missing = []
+        for source in sorted((KIT / "agent_kit").rglob("*.py")):
+            for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "attr", getattr(node.func, "id", ""))
+                keywords = {keyword.arg: keyword.value for keyword in node.keywords}
+                text_run = name == "run" and getattr(keywords.get("text"), "value", False)
+                if (name in ("read_text", "write_text", "open") or text_run) and "encoding" not in keywords:
+                    missing.append(f"{source.relative_to(KIT)}:{node.lineno} {name}")
+        self.assertEqual(missing, [])
 
 
 if __name__ == "__main__":

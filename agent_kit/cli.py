@@ -31,6 +31,11 @@ def build_parser():
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    # Windows encodes a redirected stdout/stderr with the locale code page (cp1252), which cannot
+    # print most of the Unicode found in rules and diffs
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     if Path(sys.argv[0]).stem == "agent-init" and argv != ["--version"]:
         argv = ["init", *argv]
     args = build_parser().parse_args(argv)

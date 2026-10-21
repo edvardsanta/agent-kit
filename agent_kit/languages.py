@@ -140,19 +140,19 @@ def seed_project_rules(repo):
         path = project_rules_file(repo, lang)
         if not path.exists():
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(heading)
+            path.write_text(heading, encoding="utf-8")
             log(f"rules: created {path}")
             created.append(path)
     return created
 
 
 def render_block(docs_lang, git_lang, chat_lang=None, repo=None):
-    body = rules_file(docs_lang).read_text()
+    body = rules_file(docs_lang).read_text(encoding="utf-8")
     supports_split = "{{CHAT_LANG_NAME}}" in body and "{{DOCS_LANG_NAME}}" in body
     if repo:
         project_file = project_rules_file(repo, docs_lang)
         if project_file.exists():
-            project_body = project_file.read_text().strip()
+            project_body = project_file.read_text(encoding="utf-8").strip()
             if MARKER_RE.search(project_body):
                 raise InitError(f"{project_file}: managed-block markers are not allowed in project rules")
             if project_body:
@@ -181,7 +181,7 @@ def render_block(docs_lang, git_lang, chat_lang=None, repo=None):
 
 def saved_languages(repo):
     path = repo / "AGENTS.md"
-    match = START_RE.search(path.read_text()) if path.exists() else None
+    match = START_RE.search(path.read_text(encoding="utf-8")) if path.exists() else None
     if not match:
         return None, None, None
     attrs = dict(re.findall(r"([\w-]+)=([\w-]+)", match.group("attrs")))
@@ -197,7 +197,7 @@ def saved_langs(repo):
 
 def has_marker(repo):
     path = repo / "AGENTS.md"
-    return path.exists() and START_RE.search(path.read_text()) is not None
+    return path.exists() and START_RE.search(path.read_text(encoding="utf-8")) is not None
 
 
 def upsert_block(text, block):

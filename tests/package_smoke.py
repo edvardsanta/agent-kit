@@ -8,8 +8,12 @@ from pathlib import Path
 
 
 def run(command, cwd, env):
-    return subprocess.run(command, cwd=cwd, env=env, check=True,
-                          capture_output=True, text=True)
+    # a pipe, not a console: the child encodes stdout with the locale code page (cp1252 on Windows)
+    result = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
+    if result.returncode != 0:
+        raise RuntimeError(f"{command} exited with {result.returncode}:\n{result.stderr}")
+    return result
 
 
 def main():
@@ -32,12 +36,22 @@ def main():
         repo = root / "repo"
         repo.mkdir()
         run(["git", "init", "-q"], repo, env)
+        # non-ASCII text catches reads that fall back to the locale encoding (cp1252 on Windows)
         (repo / "README.md").write_text(
-            "This is a smoke test for the installed package and it checks that it works.\n")
+            "This is a smoke test for the installed package and it checks that it “works”.\n",
+            encoding="utf-8")
         run([agent_init, str(repo), "--agent", "none", "--memory", "off"], root, env)
         agents = repo / "AGENTS.md"
-        if not agents.is_file() or "agent-kit:start" not in agents.read_text():
+        if not agents.is_file() or "agent-kit:start" not in agents.read_text(encoding="utf-8"):
             raise RuntimeError("agent-init did not initialize the smoke-test repository")
+
+        # the diff goes to stdout; "→" has no cp1252 mapping
+        overlay = repo / ".agent-kit" / "rules" / "en.md"
+        overlay.parent.mkdir(parents=True)
+        overlay.write_text("### Project\n\n- Pipelines run lint → test → build.\n", encoding="utf-8")
+        diff = run([agent_init, str(repo), "--agent", "none", "--memory", "off", "--dry-run"], root, env)
+        if "lint → test → build" not in diff.stdout:
+            raise RuntimeError("agent-init --dry-run did not print the project rule in its diff")
 
 
 if __name__ == "__main__":

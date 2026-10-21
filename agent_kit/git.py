@@ -13,7 +13,7 @@ def git_root(path):
     if not path.is_dir():
         raise InitError(f"{path} is not a directory")
     result = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path,
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         raise InitError(f"{path} is not inside a Git repository")
     return Path(result.stdout.strip()).resolve()
@@ -21,7 +21,7 @@ def git_root(path):
 
 def git_common_dir(repo):
     result = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=repo,
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         raise InitError(f"{repo}: git rev-parse failed: {result.stderr.strip()}")
     return (repo / result.stdout.strip()).resolve()
