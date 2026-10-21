@@ -10,6 +10,7 @@ from ..agents import ask_agent, select_agent
 from ..git import git_root
 from ..languages import (
     LANGS,
+    resolve_docs_language,
     PROJECT_RULE_HEADINGS,
     project_rules_file,
     rules_file,
@@ -17,6 +18,30 @@ from ..languages import (
     seed_rules,
     user_rules_dir,
 )
+from .procedures import read_multiline
+
+RULE_PROMPTS = {
+    "en": "Describe the rule for the AI in your own words: what agents must or must not do, and "
+          "why if it helps. Finish with an empty line.",
+    "pt": "Descreva a regra para a IA com suas palavras: o que os agentes devem ou não devem "
+          "fazer, e o porquê se ajudar. Termine com uma linha vazia.",
+}
+
+
+def resolve_rule(rule, repo):
+    """The rule from the argument, else typed at a terminal in the repository's docs language."""
+    if rule and rule.strip():
+        return rule.strip()
+    if not sys.stdin.isatty():
+        raise InitError("RULE is required when input is not interactive; no rules were changed")
+    try:
+        lang = resolve_docs_language(repo or git_root(Path.cwd()))
+    except InitError:
+        lang = "en"
+    rule = read_multiline(RULE_PROMPTS[lang])
+    if not rule:
+        raise InitError("the rule cannot be empty; no rules were changed")
+    return rule
 
 
 def parse_rules_answer(answer, current):
@@ -38,21 +63,28 @@ def parse_rules_answer(answer, current):
 
 
 def run_add(args):
-    scope = getattr(args, "scope", "global")
+    # project by default: a strict rule rarely fits every repository
+    scope = getattr(args, "scope", "project")
     repo_arg = getattr(args, "repo", None)
     if repo_arg and scope != "project":
         raise InitError("--repo requires --scope project; no rules were changed")
     if scope == "project":
-        repo = git_root(Path(repo_arg or ".").expanduser().resolve())
+        try:
+            repo = git_root(Path(repo_arg or ".").expanduser().resolve())
+        except InitError as error:
+            raise InitError(f"{error}; pass --repo PATH, or --scope global for your personal "
+                            "rules in every repository") from None
         directory = repo / ".agent-kit" / "rules"
         current = {lang: (project_rules_file(repo, lang).read_text(encoding="utf-8")
                           if project_rules_file(repo, lang).exists() else PROJECT_RULE_HEADINGS[lang])
                    for lang in LANGS}
     else:
+        repo = None
         directory = user_rules_dir()
         current = {lang: rules_file(lang).read_text(encoding="utf-8") for lang in LANGS}
+    rule = resolve_rule(args.rule, repo)
     agent = select_agent(args.agent)
-    prompt = (KIT / "prompts" / "add-rule.md").read_text(encoding="utf-8").replace("{{RULE}}", args.rule.strip())
+    prompt = (KIT / "prompts" / "add-rule.md").read_text(encoding="utf-8").replace("{{RULE}}", rule)
     prompt += "".join(f"=== {lang}.md ===\n{text.rstrip()}\n\n"
                       for lang, text in current.items()) + "=== end ===\n"
     log(f"{agent}: writing the rule (this can take a minute)...")
@@ -111,11 +143,13 @@ def run(args):
 
 
 def add_arguments(parser):
-    parser.add_argument("rule", help="the rule, in any language")
+    parser.add_argument("rule", nargs="?",
+                        help="the rule in your own words, in any language (default: typed at the terminal)")
     parser.add_argument("--agent", choices=["auto", "claude", "codex"], default="auto")
-    parser.add_argument("--scope", choices=["global", "project"], default="global",
-                        help="global personal baseline (default) or tracked project overlay")
-    parser.add_argument("--repo", help="target repository; requires --scope project")
+    parser.add_argument("--scope", choices=["global", "project"], default="project",
+                        help="tracked overlay of this repository (default) or your personal "
+                             "baseline for every repository")
+    parser.add_argument("--repo", help="target repository (default: current); requires project scope")
     parser.add_argument("--dry-run", action="store_true", help="print the diff, write nothing")
     parser.set_defaults(func=run_add)
 

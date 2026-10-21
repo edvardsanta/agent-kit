@@ -1,5 +1,7 @@
 You maintain rules that agent-kit injects into `AGENTS.md`.
-Below are the current rules files, one per language. Add this new rule to every file:
+Below are the current rules files, one per language. The user described a new rule in their
+own words; it may be a short note or several sentences, and may hold more than one rule. Turn it
+into rules and add them to every file:
 
 <rule>
 {{RULE}}

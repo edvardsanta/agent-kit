@@ -102,9 +102,10 @@ def procedure_path(directory, name, normalize=False):
     return candidate
 
 
-def prompt_for_description(lang, input_fn=None):
+def read_multiline(message, input_fn=None):
+    """Read lines from a terminal until an empty line; the result may be empty."""
     input_fn = input_fn or input
-    print(DESCRIPTION_PROMPTS[lang], file=sys.stderr)
+    print(message, file=sys.stderr)
     lines = []
     while True:
         try:
@@ -115,7 +116,11 @@ def prompt_for_description(lang, input_fn=None):
         if not line.strip():
             break
         lines.append(line.strip())
-    description = "\n".join(lines).strip()
+    return "\n".join(lines).strip()
+
+
+def prompt_for_description(lang, input_fn=None):
+    description = read_multiline(DESCRIPTION_PROMPTS[lang], input_fn)
     if not description:
         raise InitError("procedure description cannot be empty")
     return description

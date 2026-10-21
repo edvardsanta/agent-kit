@@ -50,8 +50,10 @@ selected AI to generate project instructions. `REPO` defaults to the current dir
 `sync` reapplies deterministic managed state to already initialized repositories below `ROOT`. It
 never invokes an AI. `ROOT` defaults to the current directory.
 
-`rules` manages the personal baseline or a tracked project overlay. The default scope is global;
-project scope requires `--scope project` and accepts `--repo PATH`.
+`rules` manages the personal baseline or a tracked project overlay. `rules add` writes to the
+project overlay by default, since a strict rule rarely fits every repository, and accepts
+`--repo PATH`; `--scope global` adds to the personal baseline. `rules show` and `rules init` default
+to global.
 
 `procedures` manages tracked workflows in one repository. Project selection always uses
 `--repo PATH`, defaulting to the current repository. A second positional repository argument is not
@@ -75,7 +77,8 @@ The same command supports people and scripts without guessing from incomplete in
 
 - A missing value may open an interactive prompt only when standard input is a terminal.
 - Non-interactive commands fail with exit 2 and name the missing option; they never wait for input.
-- `rules add` may prompt for the rule when `RULE` is omitted.
+- `rules add` prompts for the rule when `RULE` is omitted: the user describes it in their own words
+  (several lines, ending with an empty line) and the AI writes it into every language file.
 - `procedures add` is interactive by default. The user explains the workflow; the AI derives its
   title and agent-kit derives its filename.
 - Scripts use `procedures add NAME --description TEXT`.
@@ -147,12 +150,13 @@ tracked repository data under `.agent-kit/`.
 
 | Resource | Global | Project |
 | --- | --- | --- |
-| Rules | Yes; default | Yes; additive overlay |
+| Rules | Yes; default for `show`/`init` | Yes; additive overlay, default for `add` |
 | Procedures | No | Yes |
 | Generated `AGENTS.md` block | No | Yes |
 
-Scope must be explicit in code and help text. A command cannot infer project scope merely because
-it happens to run inside a Git repository.
+Scope must be explicit in code and help text. A command cannot infer its scope from where it runs:
+`rules add` targets the project whether or not the current directory is a Git repository, and fails
+there instead of falling back to global.
 
 ## Generative contract
 

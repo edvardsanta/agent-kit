@@ -6,6 +6,7 @@ tagged releases, so these notes cover commands and options that existed during d
 | Development command or option | 0.1 replacement |
 | --- | --- |
 | `agent-kit add-rule` | `agent-kit rules add` |
+| `agent-kit rules add RULE` (global by default) | `agent-kit rules add RULE --scope global`; without it the rule goes to the project |
 | `agent-kit rules --init` | `agent-kit rules init` |
 | `agent-kit init --all` | `agent-kit sync` |
 | `agent-kit init --lang LANG` | `--docs-lang LANG` (add `--chat-lang LANG` to pin chat) |
