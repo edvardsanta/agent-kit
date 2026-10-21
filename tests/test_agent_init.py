@@ -492,7 +492,7 @@ class AddRuleTest(TempDir):
         """A `claude` on PATH that saves its prompt and prints `answer`."""
         (self.tmp / "answer.txt").write_text(answer)
         stub = self.bin / "claude"
-        stub.write_text(f'#!/bin/sh\nprintf "%s" "$2" > {self.tmp}/prompt.txt\nexec /bin/cat {self.tmp}/answer.txt\n')
+        stub.write_text(f'#!/bin/sh\n/bin/cat > {self.tmp}/prompt.txt\nexec /bin/cat {self.tmp}/answer.txt\n')
         stub.chmod(0o755)
 
     def answer(self, drop_placeholder=False):
@@ -564,7 +564,7 @@ class ProceduresTest(TempDir):
             f"=== summary ===\n{summary}\n=== procedure ===\n{body}=== end ===\n")
         stub = self.bin / "claude"
         stub.write_text(
-            f'#!/bin/sh\nprintf "%s" "$2" > {self.tmp}/procedure-prompt.txt\n'
+            f'#!/bin/sh\n/bin/cat > {self.tmp}/procedure-prompt.txt\n'
             f'for a in "$@"; do printf "%s\\n" "$a"; done > {self.tmp}/procedure-args.txt\n'
             f'exec /bin/cat {self.tmp}/procedure-answer.txt\n')
         stub.chmod(0o755)
@@ -751,8 +751,20 @@ class FillTest(TempDir):
         (self.tmp / "answer.txt").write_text(answer)
         stub = self.bin / "claude"
         stub.write_text(f'#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a"; done > {self.tmp}/args.txt\n'
-                        f'exec /bin/cat {self.tmp}/answer.txt\n')
+                        f'/bin/cat > {self.tmp}/prompt.txt\nexec /bin/cat {self.tmp}/answer.txt\n')
         stub.chmod(0o755)
+
+    def fake_codex(self, answer):
+        """A `codex exec` that saves its argv and stdin and writes `answer` to its `-o` file."""
+        (self.tmp / "answer.txt").write_text(answer)
+        stub = self.bin / "codex"
+        stub.write_text(f'#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a"; done > {self.tmp}/args.txt\n'
+                        f'/bin/cat > {self.tmp}/prompt.txt\n'
+                        f'while [ $# -gt 0 ]; do [ "$1" = -o ] && /bin/cp {self.tmp}/answer.txt "$2"; shift; done\n')
+        stub.chmod(0o755)
+
+    def prompt(self):
+        return (self.tmp / "prompt.txt").read_text()
 
     def answer(self, body=None):
         return f"Some chatter.\n=== project sections ===\n{body or self.sections}=== end ===\n"
@@ -781,6 +793,16 @@ class FillTest(TempDir):
             self.assertIn(flag, args)
         for tool in ("Edit", "Write"):
             self.assertNotIn(tool, args)
+
+    def test_prompt_goes_through_stdin(self):
+        # a multi-line argv prompt is cut at its first newline by Windows .cmd shims
+        repo, agents = self.repo_with_memory_block()
+        for fake, agent in ((self.fake_claude, "claude"), (self.fake_codex, "codex")):
+            fake(self.answer())
+            self.assertEqual(self.run_cli(repo, "--agent", agent).returncode, 0)
+            self.assertIn("=== project sections ===", self.prompt())
+            self.assertFalse(any("=== project sections ===" in arg for arg in self.args()))
+        self.assertIn("A test project.", agents.read_text())
 
     def test_trust_loads_project_config(self):
         repo, _ = self.repo_with_memory_block()
@@ -817,7 +839,7 @@ class FillTest(TempDir):
         self.assertEqual(self.run_cli(repo, "--migrate-claude").returncode, 0)
         self.assertEqual((repo / "CLAUDE.md").read_text(), ai.CLAUDE_MD)
         self.assertIn("A test project.", (repo / "AGENTS.md").read_text())
-        self.assertIn("CLAUDE.md", "\n".join(self.args()))  # migrate prompt was sent
+        self.assertIn("CLAUDE.md", self.prompt())  # migrate prompt was sent
 
 
 class UninstallTest(TempDir):
