@@ -45,14 +45,14 @@ def run_add(args):
     if scope == "project":
         repo = git_root(Path(repo_arg or ".").expanduser().resolve())
         directory = repo / ".agent-kit" / "rules"
-        current = {lang: (project_rules_file(repo, lang).read_text()
+        current = {lang: (project_rules_file(repo, lang).read_text(encoding="utf-8")
                           if project_rules_file(repo, lang).exists() else PROJECT_RULE_HEADINGS[lang])
                    for lang in LANGS}
     else:
         directory = user_rules_dir()
-        current = {lang: rules_file(lang).read_text() for lang in LANGS}
+        current = {lang: rules_file(lang).read_text(encoding="utf-8") for lang in LANGS}
     agent = select_agent(args.agent)
-    prompt = (KIT / "prompts" / "add-rule.md").read_text().replace("{{RULE}}", args.rule.strip())
+    prompt = (KIT / "prompts" / "add-rule.md").read_text(encoding="utf-8").replace("{{RULE}}", args.rule.strip())
     prompt += "".join(f"=== {lang}.md ===\n{text.rstrip()}\n\n"
                       for lang, text in current.items()) + "=== end ===\n"
     log(f"{agent}: writing the rule (this can take a minute)...")
@@ -72,7 +72,7 @@ def run_add(args):
     else:
         seed_rules()
     for lang in changed:
-        (directory / f"{lang}.md").write_text(new[lang])
+        (directory / f"{lang}.md").write_text(new[lang], encoding="utf-8")
         log(f"rules: updated {directory / f'{lang}.md'}")
     if scope == "project":
         log(f"apply it with: `agent-kit init {repo} --agent none`")

@@ -32,11 +32,13 @@ def main():
         repo = root / "repo"
         repo.mkdir()
         run(["git", "init", "-q"], repo, env)
+        # non-ASCII text catches reads that fall back to the locale encoding (cp1252 on Windows)
         (repo / "README.md").write_text(
-            "This is a smoke test for the installed package and it checks that it works.\n")
+            "This is a smoke test for the installed package and it checks that it “works”.\n",
+            encoding="utf-8")
         run([agent_init, str(repo), "--agent", "none", "--memory", "off"], root, env)
         agents = repo / "AGENTS.md"
-        if not agents.is_file() or "agent-kit:start" not in agents.read_text():
+        if not agents.is_file() or "agent-kit:start" not in agents.read_text(encoding="utf-8"):
             raise RuntimeError("agent-init did not initialize the smoke-test repository")
 
 

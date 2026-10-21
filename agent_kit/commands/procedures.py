@@ -192,7 +192,7 @@ def plan_index(changes, directory, lang):
 
 def generate_procedure(repo, agent, path, title, description, lang, trust):
     relative = path.relative_to(repo).as_posix() if path else None
-    prompt = (KIT / "prompts" / "add-procedure.md").read_text()
+    prompt = (KIT / "prompts" / "add-procedure.md").read_text(encoding="utf-8")
     replacements = {
         "{{PATH}}": f"`{relative}`" if relative else "derive a concise kebab-case filename from the procedure",
         "{{TITLE}}": f"`{title}`" if title else "derive a concise title from the user's explanation",
@@ -296,7 +296,7 @@ def run(args):
     path = procedure_path(directory, args.name)
     if not path.is_file():
         raise InitError(f"procedure not found: {args.name}")
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     print(text, end="" if text.endswith("\n") else "\n")
     return 0
 

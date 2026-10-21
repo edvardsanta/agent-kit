@@ -97,7 +97,8 @@ def install_ai_memory(repo, mode):
     command = ["ai-memory", "install-instructions", "--target", "AGENTS.md"]
     if mode == "compact":
         command.append("--compact")
-    result = subprocess.run(command, cwd=repo, capture_output=True, text=True)
+    result = subprocess.run(command, cwd=repo, capture_output=True, text=True, encoding="utf-8",
+                            errors="replace")
     status = "installed" if result.returncode == 0 else f"FAILED\n{result.stderr.strip()}"
     log(f"ai-memory: routing block {status}")
 
@@ -130,9 +131,9 @@ def suspicious_lines(old, new):
 
 
 def generate_project_sections(repo, agent, docs_lang, migrate, trust):
-    prompt = (KIT / "prompts" / "fill.md").read_text().replace("{{LANG_NAME}}", LANGS[docs_lang])
+    prompt = (KIT / "prompts" / "fill.md").read_text(encoding="utf-8").replace("{{LANG_NAME}}", LANGS[docs_lang])
     if migrate:
-        prompt += "\n" + (KIT / "prompts" / "migrate.md").read_text()
+        prompt += "\n" + (KIT / "prompts" / "migrate.md").read_text(encoding="utf-8")
     answer = ask_repo_agent(repo, agent, prompt, trust, "analyzing the repo to fill project sections")
     return parse_sections(answer)
 
@@ -148,7 +149,7 @@ def add_project_sections(changes, sections):
 
 def check_existing_claude(repo, args):
     path = repo / "CLAUDE.md"
-    if not path.exists() or "@AGENTS.md" in path.read_text() or args.migrate_claude or args.keep_claude:
+    if not path.exists() or "@AGENTS.md" in path.read_text(encoding="utf-8") or args.migrate_claude or args.keep_claude:
         return
     raise InitError(
         "CLAUDE.md exists but does not import AGENTS.md; no files were changed. "

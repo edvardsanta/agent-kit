@@ -14,7 +14,7 @@ def resolve_exe(name):
         raise InitError(f"{name} not found in PATH")
     if "/.asdf/shims/" in executable:
         result = subprocess.run(["asdf", "which", name], cwd=Path.home(),
-                                capture_output=True, text=True)
+                                capture_output=True, text=True, encoding="utf-8", errors="replace")
         executable = result.stdout.strip() or executable
     return executable
 
@@ -50,10 +50,10 @@ def ask_agent(agent, prompt):
             command = [resolve_exe("codex"), "exec", "--skip-git-repo-check", "--sandbox", "read-only",
                        "-o", str(output), prompt]
         result = subprocess.run(command, cwd=temporary, stdin=subprocess.DEVNULL,
-                                capture_output=True, text=True)
+                                capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0:
             raise InitError(f"{agent} exited with {result.returncode}: {result.stderr.strip()[-500:]}")
-        return output.read_text() if agent == "codex" else result.stdout
+        return output.read_text(encoding="utf-8") if agent == "codex" else result.stdout
 
 
 def ask_repo_agent(repo, agent, prompt, trust, activity):
@@ -73,7 +73,7 @@ def ask_repo_agent(repo, agent, prompt, trust, activity):
         mode = "trusted" if trust else "read-only, project config ignored"
         log(f"{agent}: {activity} ({mode}; this can take a minute)...")
         result = subprocess.run(command, cwd=repo, stdin=subprocess.DEVNULL,
-                                capture_output=True, text=True)
+                                capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0:
             raise InitError(f"{agent} exited with {result.returncode}: {result.stderr.strip()[-500:]}")
-        return output.read_text() if agent == "codex" else result.stdout
+        return output.read_text(encoding="utf-8") if agent == "codex" else result.stdout
