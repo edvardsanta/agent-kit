@@ -127,8 +127,10 @@ by the stub if the agent exits cleanly. An independent `CLAUDE.md` otherwise sto
 before any write; use `--keep-claude` to keep it intentionally.
 
 Agent output is generated and validated before planned repository changes are applied. A missing
-agent or rejected answer therefore leaves the repository unchanged. `--agent auto` chooses Claude,
-then Codex, and explains how to continue with `--agent none` when neither is installed.
+agent or rejected answer therefore leaves the repository unchanged. `--agent auto` uses Claude, then
+Codex: if Claude is missing, or fails (not logged in, out of quota, an answer in the wrong format),
+it tries Codex and logs why. It explains how to continue with `--agent none` when neither is
+installed. An explicit `--agent claude` or `--agent codex` never switches to the other.
 
 ## Prompt injection
 

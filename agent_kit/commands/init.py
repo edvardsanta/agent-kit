@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 
 from .. import KIT, InitError, log
-from ..agents import ask_repo_agent, select_agent
+from ..agents import agent_candidates, ask_repo_agent, with_fallback
 from ..changes import Changes
 from ..git import git_common_dir, git_root, tracked_paths
 from ..languages import (END, LANGS, MARKER_RE, has_marker, render_block, resolve_languages,
@@ -195,14 +195,16 @@ def run_one(repo, args):
         if steps:
             log("would also run: " + "; ".join(steps))
         return 0
-    agent = select_agent(requested_agent, allow_none=True)
+    agents = agent_candidates(requested_agent, allow_none=True)
+    use_agent = agents != ["none"]
     flagged = []
-    if agent != "none":
-        sections = generate_project_sections(repo, agent, docs_lang, args.migrate_claude, args.trust)
+    if use_agent:
+        sections = with_fallback(agents, lambda agent: generate_project_sections(
+            repo, agent, docs_lang, args.migrate_claude, args.trust))
         flagged = add_project_sections(changes, sections)
     if args.migrate_claude:
         changes.write(repo / "CLAUDE.md", CLAUDE_MD, "CLAUDE.md: replaced with the import stub")
-    if agent != "none" and changes.pending:
+    if use_agent and changes.pending:
         changes.diff()
     changes.apply()
     remember_repos([repo])
@@ -314,7 +316,8 @@ def register(subparsers):
                         help="language of commits/issues/PRs (default: saved value, else detected "
                              "from commit subjects, else the docs language)")
     parser.add_argument("--agent", choices=["auto", "claude", "codex", "none"],
-                        help="who fills project sections (default: auto, Claude then Codex)")
+                        help="who fills project sections (default: auto, Claude then Codex if Claude is "
+                             "missing or fails)")
     parser.add_argument("--memory", choices=["off", "compact", "full"],
                         help="ai-memory integration level (default: compact; upstream: off)")
     parser.add_argument("--tracked", action="store_true",

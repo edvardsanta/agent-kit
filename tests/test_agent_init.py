@@ -581,7 +581,7 @@ class AddRuleTest(TempDir):
         typed = "Agents push only after I ask.\nThat includes tags."
         with mock.patch.object(rules.sys.stdin, "isatty", return_value=True), \
                 mock.patch.object(rules, "read_multiline", return_value=typed) as read, \
-                mock.patch.object(rules, "select_agent", return_value="claude"), \
+                mock.patch.object(rules, "agent_candidates", return_value=["claude"]), \
                 mock.patch.object(rules, "ask_agent", return_value=self.answer()) as ask, \
                 mock.patch("sys.stdout"):
             self.assertEqual(rules.run_add(args), 0)
@@ -782,7 +782,7 @@ class ProceduresTest(TempDir):
         with mock.patch.object(procedures.sys.stdin, "isatty", return_value=True), \
                 mock.patch.object(procedures, "prompt_for_description",
                                   return_value="Do not use /tmp for reusable project artifacts."), \
-                mock.patch.object(procedures, "select_agent", return_value="claude"), \
+                mock.patch.object(procedures, "agent_candidates", return_value=["claude"]), \
                 mock.patch.object(procedures, "generate_procedure", return_value=generated):
             self.assertEqual(procedures.run(args), 0)
         path = repo / ".agent-kit" / "procedures" / "avoid-temporary-files.md"
@@ -876,6 +876,35 @@ class FillTest(TempDir):
             self.assertIn("=== project sections ===", self.prompt())
             self.assertFalse(any("=== project sections ===" in arg for arg in self.args()))
         self.assertIn("A test project.", agents.read_text())
+
+    def failing_claude(self):
+        stub = self.bin / "claude"
+        stub.write_text('#!/bin/sh\necho "Invalid API key - please run /login" >&2\nexit 1\n')
+        stub.chmod(0o755)
+
+    def test_auto_falls_back_to_codex_when_claude_fails(self):
+        repo, agents = self.repo_with_memory_block()
+        self.fake_codex(self.answer())
+        self.failing_claude()
+        r = self.run_cli(repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("claude failed: claude exited with 1: Invalid API key", r.stderr)
+        self.assertIn("trying codex", r.stderr)
+        self.assertIn("A test project.", agents.read_text())
+
+    def test_explicit_agent_and_double_failure_report_errors(self):
+        repo, agents = self.repo_with_memory_block()
+        before = agents.read_text()
+        self.fake_codex("no delimiters here")
+        self.failing_claude()
+        explicit = self.run_cli(repo, "--agent", "claude")
+        self.assertEqual(explicit.returncode, 2)
+        self.assertNotIn("codex", explicit.stderr)
+        both = self.run_cli(repo)
+        self.assertEqual(both.returncode, 2)
+        self.assertIn("every agent failed: claude: claude exited with 1", both.stderr)
+        self.assertIn("; codex: agent answer lacks", both.stderr)
+        self.assertEqual(agents.read_text(), before)
 
     def test_trust_loads_project_config(self):
         repo, _ = self.repo_with_memory_block()

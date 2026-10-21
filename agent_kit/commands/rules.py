@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from .. import KIT, InitError, log
-from ..agents import ask_agent, select_agent
+from ..agents import agent_candidates, ask_agent, with_fallback
 from ..git import git_root
 from ..languages import (
     LANGS,
@@ -83,12 +83,16 @@ def run_add(args):
         directory = user_rules_dir()
         current = {lang: rules_file(lang).read_text(encoding="utf-8") for lang in LANGS}
     rule = resolve_rule(args.rule, repo)
-    agent = select_agent(args.agent)
+    agents = agent_candidates(args.agent)
     prompt = (KIT / "prompts" / "add-rule.md").read_text(encoding="utf-8").replace("{{RULE}}", rule)
     prompt += "".join(f"=== {lang}.md ===\n{text.rstrip()}\n\n"
                       for lang, text in current.items()) + "=== end ===\n"
-    log(f"{agent}: writing the rule (this can take a minute)...")
-    new = parse_rules_answer(ask_agent(agent, prompt), current)
+
+    def attempt(agent):
+        log(f"{agent}: writing the rule (this can take a minute)...")
+        return parse_rules_answer(ask_agent(agent, prompt), current)
+
+    new = with_fallback(agents, attempt)
     changed = [lang for lang in LANGS if new[lang] != current[lang]]
     if not changed:
         log("the agent changed nothing; the rule may already be covered")
@@ -145,7 +149,9 @@ def run(args):
 def add_arguments(parser):
     parser.add_argument("rule", nargs="?",
                         help="the rule in your own words, in any language (default: typed at the terminal)")
-    parser.add_argument("--agent", choices=["auto", "claude", "codex"], default="auto")
+    parser.add_argument("--agent", choices=["auto", "claude", "codex"], default="auto",
+                        help="local agent CLI to use (default: auto, Claude then Codex if Claude is "
+                             "missing or fails)")
     parser.add_argument("--scope", choices=["global", "project"], default="project",
                         help="tracked overlay of this repository (default) or your personal "
                              "baseline for every repository")
