@@ -41,7 +41,8 @@ agent-kit doctor
 If you prefer to install it yourself, any Python tool installer works with the tag URL:
 `pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.4.dev0` (or `uv tool install`).
 `agent-kit upgrade` installs the latest release (`--version <tag>` picks one) with the same tool
-that installed it. To remove it, run `agent-kit uninstall` (add `--purge` to also delete your
+that installed it, then runs `agent-kit sync --known` with the new version so your repositories get
+its changes (`--no-sync` skips that). To remove it, run `agent-kit uninstall` (add `--purge` to also delete your
 personal rules). Both work for the installers, `uv tool` and `pipx`; for anything else, use the
 tool you installed with.
 
@@ -249,6 +250,13 @@ no agent) and keeps each repo's saved languages. Repositories requiring migratio
 the summary, and make `--check` exit 1 instead of reporting everything as current. Repos with an
 old marker without a saved language need one explicit initialization:
 `agent-kit init <repo> --docs-lang <pt|en> --agent none`.
+
+`init` and `sync` record every repository they set up in `~/.local/state/agent-kit/repos`
+(`$XDG_STATE_HOME`, or `$AGENT_KIT_STATE` to move it). `agent-kit sync --known` syncs exactly those,
+from any directory, skipping the ones that no longer exist; `agent-kit upgrade` runs it for you.
+Repositories set up before this record existed join it the next time you run `agent-kit sync <folder>`
+or `agent-init` on them. Repositories initialized with `--profile upstream` keep their agent files
+hidden from Git when synced.
 
 ## License
 

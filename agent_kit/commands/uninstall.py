@@ -86,11 +86,15 @@ def remove_user_path_entry(entry):
         winreg.SetValueEx(key, "Path", 0, kind, ";".join(kept))
 
 
-def finish_in_background(command, paths):
-    """Windows cannot delete the running agent-kit.exe, so a detached cmd does it after we exit."""
+def finish_in_background(command, paths, then=None):
+    """Windows cannot delete the running agent-kit.exe, so a detached cmd does it after we exit.
+
+    `then` runs only if `command` succeeds.
+    """
     steps = ["ping -n 3 127.0.0.1 >nul"]
     if command:
-        steps.append(subprocess.list2cmdline(command))
+        steps.append(subprocess.list2cmdline(command)
+                     + (f" && {subprocess.list2cmdline(then)}" if then else ""))
     steps += [f'rmdir /s /q "{path}"' if path.is_dir() else f'del /f /q "{path}"' for path in paths]
     flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     # one string, not a list: list2cmdline would escape the inner quotes as \" and cmd misreads them;

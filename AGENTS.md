@@ -161,9 +161,14 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
   personal templates using `{{LANG_NAME}}` work when chat and docs share a language.
 - `agent_kit/rules/en.md` and `agent_kit/rules/pt.md` must stay in sync: change both when editing a
   rule.
-- `sync` only re-applies deterministic changes and never invokes an agent.
+- `sync` only re-applies deterministic changes and never invokes an agent. It infers the upstream
+  profile from `AGENTS.md` being in the local exclude (`hides_agent_files`), so new managed files
+  stay hidden there.
+- `agent_kit/state.py` records repositories set up by `init` / `sync` for `sync --known`, which
+  `upgrade` runs with the new version. Recording never fails a run.
 - Testing rules:
-  - Tests point `AGENT_KIT_RULES` at a temp dir, so the user's real rules dir is never read.
+  - Tests point `AGENT_KIT_RULES` and `AGENT_KIT_STATE` at temp dirs, so the user's real rules
+    dir and record of managed repositories are never read or written.
   - Tests that call the CLI set `PATH` to a temp `bin` dir that holds only `git` plus any fake stubs
     a test writes there (e.g. `FillTest.fake_claude`). The real `ai-memory`, `claude` and `codex`
     can never run from the test suite; keep it that way.
