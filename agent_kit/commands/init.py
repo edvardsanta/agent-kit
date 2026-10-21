@@ -21,6 +21,9 @@ SUSPICIOUS_RE = re.compile(
     r"|hooks?\b|allowedTools|permission|settings(\.local)?\.json|\.mcp\.json"
     r"|ignore (all |any )?(previous|prior|above)|api[_ -]?key|token|secret|password", re.I)
 
+# project skill folders read by Claude Code and by Codex
+SKILL_ROOTS = (".claude/skills", ".agents/skills")
+
 CLAUDE_MD = """@AGENTS.md
 
 ## Claude Code notes
@@ -56,6 +59,15 @@ def ensure_claude_md(changes, keep_existing=False):
         raise InitError("CLAUDE.md exists but does not import AGENTS.md; use --migrate-claude or --keep-claude")
 
 
+def ensure_skills(changes):
+    """Copy the packaged agent skills where Claude Code (.claude/) and Codex (.agents/) find them."""
+    for source in sorted((KIT / "skills").glob("*/SKILL.md")):
+        text = source.read_text(encoding="utf-8")
+        for root in SKILL_ROOTS:
+            path = changes.repo / root / source.parent.name / "SKILL.md"
+            changes.write(path, text, f"{changes.rel(path)}: {'updated' if path.exists() else 'created'}")
+
+
 def ensure_no_coauthor(changes):
     path = changes.repo / ".claude" / "settings.local.json"
     text = changes.read(path)
@@ -81,8 +93,10 @@ def plan(repo, docs_lang, git_lang, chat_lang=None, tracked=False, hide_agent_fi
     if not migrate:
         ensure_claude_md(changes, keep_claude)
     ensure_ignored(changes, ".worktrees/", tracked)
+    ensure_skills(changes)
     if hide_agent_files:
-        for name in ("AGENTS.md", "CLAUDE.md", "AGENTS.md.bak-*", ".agents/"):
+        for name in ("AGENTS.md", "CLAUDE.md", "AGENTS.md.bak-*", ".agents/",
+                     ".claude/skills/agent-kit-*/"):
             ensure_ignored(changes, name, False)
     ensure_no_coauthor(changes)
     return changes

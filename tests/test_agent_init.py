@@ -134,14 +134,26 @@ class PlanTest(TempDir):
     def test_plan_then_apply_is_idempotent(self):
         repo = self.git_repo()
         ch = ai.plan(repo, "en", "en")
+        skills = {f"{root}/agent-kit-{name}/SKILL.md"
+                  for root in (".claude/skills", ".agents/skills") for name in ("rules", "procedures")}
         self.assertEqual({ch.rel(p) for p in ch.pending}, {
-            "AGENTS.md", "CLAUDE.md", ".git/info/exclude", ".claude/settings.local.json"})
+            "AGENTS.md", "CLAUDE.md", ".git/info/exclude", ".claude/settings.local.json", *skills})
         ch.apply()
         exclude = (repo / ".git/info/exclude").read_text().splitlines()
         self.assertIn(".worktrees/", exclude)
         self.assertIn(".claude/settings.local.json", exclude)
         self.assertIn(".agent-kit/procedures/", (repo / "AGENTS.md").read_text())
         self.assertEqual(ai.plan(repo, "en", "en").pending, {})
+
+    def test_skills_match_the_package_and_upstream_hides_them(self):
+        repo = self.git_repo()
+        ai.plan(repo, "en", "en", hide_agent_files=True).apply()
+        packaged = (ai.KIT / "skills" / "agent-kit-rules" / "SKILL.md").read_text()
+        for root in (".claude/skills", ".agents/skills"):
+            self.assertEqual((repo / root / "agent-kit-rules" / "SKILL.md").read_text(), packaged)
+        status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo,
+                                capture_output=True, text=True, check=True).stdout
+        self.assertNotIn("skills", status)
 
     def test_tracked_gitignore_entry_counts(self):
         repo = self.git_repo()

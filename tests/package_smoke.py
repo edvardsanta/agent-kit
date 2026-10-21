@@ -44,6 +44,8 @@ def main():
         agents = repo / "AGENTS.md"
         if not agents.is_file() or "agent-kit:start" not in agents.read_text(encoding="utf-8"):
             raise RuntimeError("agent-init did not initialize the smoke-test repository")
+        if not (repo / ".claude" / "skills" / "agent-kit-rules" / "SKILL.md").is_file():
+            raise RuntimeError("agent-init did not install the packaged agent skills")
 
         # the diff goes to stdout; "→" has no cp1252 mapping
         overlay = repo / ".agent-kit" / "rules" / "en.md"

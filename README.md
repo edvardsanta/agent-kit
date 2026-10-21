@@ -95,9 +95,15 @@ Claude settings because `.git/info/exclude` cannot hide changes to tracked files
 2. `CLAUDE.md` becomes just `@AGENTS.md`.
 3. `.worktrees/` goes into `.git/info/exclude` (use `--tracked` for the versioned `.gitignore`).
 4. `.claude/settings.local.json` with empty `attribution` (turns off Claude Code's Co-Authored-By).
-5. Unless `--memory off` is selected, `ai-memory install-instructions` installs its routing block
+5. Agent skills in `.claude/skills/` (Claude Code) and `.agents/skills/` (Codex), so you can stay in
+   your agent: `agent-kit-rules` ("from now on, never force-push") has it edit
+   `.agent-kit/rules/` and re-render the block with `agent-kit init --agent none`, and
+   `agent-kit-procedures` ("save how we release as a procedure") has it write the procedure and
+   regenerate the index with `agent-kit procedures init`. They are replaced on every run;
+   `--profile upstream` hides them from Git.
+6. Unless `--memory off` is selected, `ai-memory install-instructions` installs its routing block
    and skills. The default is `compact`; `--profile upstream` defaults to `off`.
-6. An agent (`claude -p` or `codex exec`) reads the repo and answers with overview, commands,
+7. An agent (`claude -p` or `codex exec`) reads the repo and answers with overview, commands,
    conventions and pitfalls (`agent_kit/prompts/fill.md`); agent-kit writes them outside the
    managed blocks.
 
@@ -238,7 +244,7 @@ agent-kit sync ~/repos           # apply
 ```
 
 `sync` scans up to 3 levels below the given directory and only touches repos whose `AGENTS.md`
-already has the agent-kit marker. It runs the deterministic part only (steps 1-4: no ai-memory,
+already has the agent-kit marker. It runs the deterministic part only (steps 1-5: no ai-memory,
 no agent) and keeps each repo's saved languages. Repositories requiring migration are counted in
 the summary, and make `--check` exit 1 instead of reporting everything as current. Repos with an
 old marker without a saved language need one explicit initialization:

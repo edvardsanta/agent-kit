@@ -47,6 +47,11 @@ enough.
 `init` initializes a single repository or updates its complete agent-kit setup. It may run the
 selected AI to generate project instructions. `REPO` defaults to the current directory.
 
+Its deterministic part includes the `agent-kit-rules` and `agent-kit-procedures` agent skills in
+`.claude/skills/` and `.agents/skills/`. They let an agent make the creative edit itself, a rule
+in every language or a procedure, and finish with a deterministic command (`init --agent none`,
+`procedures init`) that validates and renders it. agent-kit owns and replaces those files.
+
 `sync` reapplies deterministic managed state to already initialized repositories below `ROOT`. It
 never invokes an AI. `ROOT` defaults to the current directory.
 

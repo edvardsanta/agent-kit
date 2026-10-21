@@ -57,7 +57,8 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
 `doctor`, `upgrade` and `uninstall`.
 `init` has two parts:
 - A deterministic part: the managed rules block, the `CLAUDE.md` import stub, the `.worktrees/`
-  ignore entry, turning off Claude Code attribution, and optional ai-memory routing.
+  ignore entry, the agent skills, turning off Claude Code attribution, and optional ai-memory
+  routing.
 - An optional generative part: `claude -p` or `codex exec` reads the repo without changing anything and prints the project sections, and agent-kit writes them into `AGENTS.md`.
 
 ## Repository layout
@@ -77,6 +78,10 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
   A target repo may add tracked overlays in `.agent-kit/rules/<lang>.md`.
 - `.agent-kit/procedures/` in a target repository contains tracked, reusable workflows shared by
   users and all agents; `procedures init` creates its README without overwriting it later.
+- `agent_kit/skills/<name>/SKILL.md`: packaged agent skills (`agent-kit-rules`,
+  `agent-kit-procedures`) that `ensure_skills` copies into `.claude/skills/` and `.agents/skills/`
+  of the target repo, so agents edit rules and procedures themselves and then run the
+  deterministic `agent-kit` commands.
 - `agent_kit/prompts/fill.md`: packaged prompt for the project sections. `migrate.md` is appended to
   it for `--migrate-claude`; `add-rule.md` and `add-procedure.md` drive generative resource creation.
 - `pyproject.toml`: setuptools package metadata, package-data declarations, and the `agent-kit` /
@@ -108,7 +113,9 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
   same plan serves normal runs, `--dry-run` and `--check`. Do not write files directly in
   `ensure_*` helpers.
 - `plan()` composes the deterministic steps (`ensure_agents_md`, `ensure_claude_md`,
-  `ensure_ignored`, `ensure_no_coauthor`); keep each step idempotent.
+  `ensure_ignored`, `ensure_skills`, `ensure_no_coauthor`); keep each step idempotent.
+- Skills tell agents which deterministic command finishes their edit (`init --agent none`,
+  `procedures init`); keep those commands' names and behavior in sync with the skill text.
 - User-facing failures raise `InitError`, which prints `agent-kit: error: ...` and exits 2. Progress
   goes through `log()` with the `[agent-kit]` prefix on stderr; reserve stdout for requested data
   and diffs.
