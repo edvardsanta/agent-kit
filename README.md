@@ -24,7 +24,7 @@ irm https://raw.githubusercontent.com/edvardsanta/agent-kit/main/install.ps1 | i
 ```
 
 The installers check Python and `git`, install the most recent release
-([`v0.1.4.dev0`](https://github.com/edvardsanta/agent-kit/releases/tag/v0.1.4.dev0) today), and
+([`v0.1.5.dev0`](https://github.com/edvardsanta/agent-kit/releases/tag/v0.1.5.dev0) today), and
 use `uv tool` or `pipx` when available, else a private virtualenv under
 `~/.local/share/agent-kit` (Windows: `%LOCALAPPDATA%\agent-kit`, whose `bin` is added to the user
 `PATH`). To upgrade later, run `agent-kit upgrade` (or the same install command again). Set
@@ -39,7 +39,7 @@ agent-kit doctor
 ```
 
 If you prefer to install it yourself, any Python tool installer works with the tag URL:
-`pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.4.dev0` (or `uv tool install`).
+`pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.5.dev0` (or `uv tool install`).
 `agent-kit upgrade` installs the latest release (`--version <tag>` picks one) with the same tool
 that installed it, then runs `agent-kit sync --known` with the new version so your repositories get
 its changes (`--no-sync` skips that). To remove it, run `agent-kit uninstall` (add `--purge` to also delete your
