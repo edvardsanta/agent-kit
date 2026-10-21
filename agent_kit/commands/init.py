@@ -11,15 +11,19 @@ from pathlib import Path
 from .. import KIT, InitError, log
 from ..agents import ask_repo_agent, select_agent
 from ..changes import Changes
-from ..git import find_repos, git_common_dir, git_root, tracked_paths
+from ..git import git_common_dir, git_root, tracked_paths
 from ..languages import (END, LANGS, MARKER_RE, has_marker, render_block, resolve_languages,
                          saved_languages, upsert_block)
+from ..state import remember_repos
 
 AI_MEMORY_START = "<!-- ai-memory:start -->"
 SUSPICIOUS_RE = re.compile(
     r"https?://|\b(curl|wget|sudo|eval|base64|chmod|chown|ssh|scp|nc)\b|\|\s*(ba|z)?sh\b"
     r"|hooks?\b|allowedTools|permission|settings(\.local)?\.json|\.mcp\.json"
     r"|ignore (all |any )?(previous|prior|above)|api[_ -]?key|token|secret|password", re.I)
+
+# project skill folders read by Claude Code and by Codex
+SKILL_ROOTS = (".claude/skills", ".agents/skills")
 
 CLAUDE_MD = """@AGENTS.md
 
@@ -56,6 +60,15 @@ def ensure_claude_md(changes, keep_existing=False):
         raise InitError("CLAUDE.md exists but does not import AGENTS.md; use --migrate-claude or --keep-claude")
 
 
+def ensure_skills(changes):
+    """Copy the packaged agent skills where Claude Code (.claude/) and Codex (.agents/) find them."""
+    for source in sorted((KIT / "skills").glob("*/SKILL.md")):
+        text = source.read_text(encoding="utf-8")
+        for root in SKILL_ROOTS:
+            path = changes.repo / root / source.parent.name / "SKILL.md"
+            changes.write(path, text, f"{changes.rel(path)}: {'updated' if path.exists() else 'created'}")
+
+
 def ensure_no_coauthor(changes):
     path = changes.repo / ".claude" / "settings.local.json"
     text = changes.read(path)
@@ -81,8 +94,10 @@ def plan(repo, docs_lang, git_lang, chat_lang=None, tracked=False, hide_agent_fi
     if not migrate:
         ensure_claude_md(changes, keep_claude)
     ensure_ignored(changes, ".worktrees/", tracked)
+    ensure_skills(changes)
     if hide_agent_files:
-        for name in ("AGENTS.md", "CLAUDE.md", "AGENTS.md.bak-*", ".agents/"):
+        for name in ("AGENTS.md", "CLAUDE.md", "AGENTS.md.bak-*", ".agents/",
+                     ".claude/skills/agent-kit-*/"):
             ensure_ignored(changes, name, False)
     ensure_no_coauthor(changes)
     return changes
@@ -190,6 +205,7 @@ def run_one(repo, args):
     if agent != "none" and changes.pending:
         changes.diff()
     changes.apply()
+    remember_repos([repo])
     install_ai_memory(repo, args.memory)
     if flagged:
         log("REVIEW: the agent wrote lines that run commands, fetch URLs or touch permissions; "
@@ -200,24 +216,40 @@ def run_one(repo, args):
     return 0
 
 
-def run_all(root, args):
+def hides_agent_files(repo):
+    """Whether `--profile upstream` initialized the repo: it hid AGENTS.md in the local exclude."""
+    exclude = git_common_dir(repo) / "info" / "exclude"
+    try:
+        return "AGENTS.md" in exclude.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+
+
+def run_all(repos, args, base=None):
     checked = current = outdated = skipped = errors = 0
-    for repo in find_repos(root):
+    synced = []
+    for repo in repos:
+        name = os.path.relpath(repo, base) if base else str(repo)
+        if not repo.is_dir():
+            log(f"SKIP {name}: no longer exists")
+            continue
         if not has_marker(repo):
             continue
         checked += 1
-        name = os.path.relpath(repo, root)
         docs_lang, chat_lang, git_lang = saved_languages(repo)
         if not docs_lang:
             skipped += 1
             log(f"SKIP {name}: marker has no saved language; run `agent-kit init {repo} --docs-lang <pt|en>` once")
             continue
         try:
-            changes = plan(repo, docs_lang, git_lang or docs_lang, chat_lang)
+            changes = plan(repo, docs_lang, git_lang or docs_lang, chat_lang,
+                           hide_agent_files=hides_agent_files(repo))
         except InitError as error:
             log(f"ERROR {name}: {error}")
             errors += 1
             continue
+        if not args.check and not args.dry_run:
+            synced.append(repo)
         if not changes.pending:
             current += 1
             if not args.check:
@@ -231,6 +263,7 @@ def run_all(root, args):
         else:
             log(f"updating {name}")
             changes.apply()
+    remember_repos(synced)
     changed_label = "outdated" if args.check else "would update" if args.dry_run else "updated"
     log(f"Checked {checked} repositories: {current} current, {outdated} {changed_label}, "
         f"{skipped} need migration, {errors} errors.")

@@ -38,12 +38,17 @@ class TempDir(unittest.TestCase):
         self.rules = self.tmp / "user-rules"
         self._old_rules = os.environ.get("AGENT_KIT_RULES")
         os.environ["AGENT_KIT_RULES"] = str(self.rules)
+        # nor its record of managed repositories
+        self.state = self.tmp / "state"
+        self._old_state = os.environ.get("AGENT_KIT_STATE")
+        os.environ["AGENT_KIT_STATE"] = str(self.state)
 
     def tearDown(self):
-        if self._old_rules is None:
-            os.environ.pop("AGENT_KIT_RULES", None)
-        else:
-            os.environ["AGENT_KIT_RULES"] = self._old_rules
+        for name, old in (("AGENT_KIT_RULES", self._old_rules), ("AGENT_KIT_STATE", self._old_state)):
+            if old is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = old
         shutil.rmtree(self.tmp)
 
     def git_repo(self, name="repo", readme=EN_README):
@@ -134,14 +139,26 @@ class PlanTest(TempDir):
     def test_plan_then_apply_is_idempotent(self):
         repo = self.git_repo()
         ch = ai.plan(repo, "en", "en")
+        skills = {f"{root}/agent-kit-{name}/SKILL.md"
+                  for root in (".claude/skills", ".agents/skills") for name in ("rules", "procedures")}
         self.assertEqual({ch.rel(p) for p in ch.pending}, {
-            "AGENTS.md", "CLAUDE.md", ".git/info/exclude", ".claude/settings.local.json"})
+            "AGENTS.md", "CLAUDE.md", ".git/info/exclude", ".claude/settings.local.json", *skills})
         ch.apply()
         exclude = (repo / ".git/info/exclude").read_text().splitlines()
         self.assertIn(".worktrees/", exclude)
         self.assertIn(".claude/settings.local.json", exclude)
         self.assertIn(".agent-kit/procedures/", (repo / "AGENTS.md").read_text())
         self.assertEqual(ai.plan(repo, "en", "en").pending, {})
+
+    def test_skills_match_the_package_and_upstream_hides_them(self):
+        repo = self.git_repo()
+        ai.plan(repo, "en", "en", hide_agent_files=True).apply()
+        packaged = (ai.KIT / "skills" / "agent-kit-rules" / "SKILL.md").read_text()
+        for root in (".claude/skills", ".agents/skills"):
+            self.assertEqual((repo / root / "agent-kit-rules" / "SKILL.md").read_text(), packaged)
+        status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo,
+                                capture_output=True, text=True, check=True).stdout
+        self.assertNotIn("skills", status)
 
     def test_tracked_gitignore_entry_counts(self):
         repo = self.git_repo()
@@ -416,6 +433,30 @@ class CliTest(TempDir):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("1 current", r.stderr)
         self.assertEqual(r.stdout, "")
+
+    def test_sync_known_updates_recorded_repositories(self):
+        first, second = self.git_repo("a"), self.git_repo("deep/down/b")
+        self.assertIn("no known repositories", self.run_kit("sync", "--known").stderr)
+        for repo in (first, second):
+            self.run_cli(repo, "--agent", "none")
+        (first / "AGENTS.md").write_text((first / "AGENTS.md").read_text().replace("Commits", "XX"))
+        shutil.rmtree(second)
+        r = self.run_kit("sync", "--known")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"updating {first}", r.stderr)
+        self.assertIn(f"SKIP {second}: no longer exists", r.stderr)
+        self.assertNotIn("XX", (first / "AGENTS.md").read_text())
+        self.assertEqual(self.run_kit("sync", self.tmp, "--known").returncode, 2)
+
+    def test_sync_keeps_upstream_agent_files_hidden(self):
+        repo = self.git_repo()
+        self.run_cli(repo, "--profile", "upstream", "--agent", "none")
+        shutil.rmtree(repo / ".claude" / "skills")  # as if initialized before skills existed
+        self.assertEqual(self.run_kit("sync", self.tmp).returncode, 0)
+        self.assertTrue((repo / ".claude" / "skills" / "agent-kit-rules" / "SKILL.md").is_file())
+        status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo,
+                                capture_output=True, text=True, check=True).stdout
+        self.assertEqual(status, "?? README.md\n")  # the fixture's own file, nothing from agent-kit
 
     def test_version_and_doctor(self):
         version = self.run_kit("--version")
@@ -985,6 +1026,20 @@ class UpgradeTest(TempDir):
             os.environ.pop("AGENT_KIT_SOURCE", None)
             self.assertEqual(self.upgrade.run(args), 0)
         plan.assert_not_called()
+
+    def test_syncs_known_repositories_with_the_new_version(self):
+        args = mock.Mock(version="v9", dry_run=False, no_sync=False)
+        with mock.patch.dict(os.environ), \
+                mock.patch.object(self.upgrade, "plan_upgrade", return_value=["install"]), \
+                mock.patch.object(self.upgrade, "WINDOWS", False), \
+                mock.patch("shutil.which", return_value="/bin/agent-kit"), \
+                mock.patch("subprocess.run", return_value=mock.Mock(returncode=0)) as run:
+            os.environ.pop("AGENT_KIT_SOURCE", None)
+            self.assertEqual(self.upgrade.run(args), 0)
+            args.no_sync = True
+            self.assertEqual(self.upgrade.run(args), 0)
+        self.assertEqual([call.args[0] for call in run.call_args_list],
+                         [["install"], ["/bin/agent-kit", "sync", "--known"], ["install"]])
 
     def test_unknown_installation_changes_nothing(self):
         # --dry-run and an explicit source: no network, and the suite never upgrades a real install

@@ -57,7 +57,8 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
 `doctor`, `upgrade` and `uninstall`.
 `init` has two parts:
 - A deterministic part: the managed rules block, the `CLAUDE.md` import stub, the `.worktrees/`
-  ignore entry, turning off Claude Code attribution, and optional ai-memory routing.
+  ignore entry, the agent skills, turning off Claude Code attribution, and optional ai-memory
+  routing.
 - An optional generative part: `claude -p` or `codex exec` reads the repo without changing anything and prints the project sections, and agent-kit writes them into `AGENTS.md`.
 
 ## Repository layout
@@ -77,6 +78,10 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
   A target repo may add tracked overlays in `.agent-kit/rules/<lang>.md`.
 - `.agent-kit/procedures/` in a target repository contains tracked, reusable workflows shared by
   users and all agents; `procedures init` creates its README without overwriting it later.
+- `agent_kit/skills/<name>/SKILL.md`: packaged agent skills (`agent-kit-rules`,
+  `agent-kit-procedures`) that `ensure_skills` copies into `.claude/skills/` and `.agents/skills/`
+  of the target repo, so agents edit rules and procedures themselves and then run the
+  deterministic `agent-kit` commands.
 - `agent_kit/prompts/fill.md`: packaged prompt for the project sections. `migrate.md` is appended to
   it for `--migrate-claude`; `add-rule.md` and `add-procedure.md` drive generative resource creation.
 - `pyproject.toml`: setuptools package metadata, package-data declarations, and the `agent-kit` /
@@ -108,7 +113,9 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
   same plan serves normal runs, `--dry-run` and `--check`. Do not write files directly in
   `ensure_*` helpers.
 - `plan()` composes the deterministic steps (`ensure_agents_md`, `ensure_claude_md`,
-  `ensure_ignored`, `ensure_no_coauthor`); keep each step idempotent.
+  `ensure_ignored`, `ensure_skills`, `ensure_no_coauthor`); keep each step idempotent.
+- Skills tell agents which deterministic command finishes their edit (`init --agent none`,
+  `procedures init`); keep those commands' names and behavior in sync with the skill text.
 - User-facing failures raise `InitError`, which prints `agent-kit: error: ...` and exits 2. Progress
   goes through `log()` with the `[agent-kit]` prefix on stderr; reserve stdout for requested data
   and diffs.
@@ -154,9 +161,14 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
   personal templates using `{{LANG_NAME}}` work when chat and docs share a language.
 - `agent_kit/rules/en.md` and `agent_kit/rules/pt.md` must stay in sync: change both when editing a
   rule.
-- `sync` only re-applies deterministic changes and never invokes an agent.
+- `sync` only re-applies deterministic changes and never invokes an agent. It infers the upstream
+  profile from `AGENTS.md` being in the local exclude (`hides_agent_files`), so new managed files
+  stay hidden there.
+- `agent_kit/state.py` records repositories set up by `init` / `sync` for `sync --known`, which
+  `upgrade` runs with the new version. Recording never fails a run.
 - Testing rules:
-  - Tests point `AGENT_KIT_RULES` at a temp dir, so the user's real rules dir is never read.
+  - Tests point `AGENT_KIT_RULES` and `AGENT_KIT_STATE` at temp dirs, so the user's real rules
+    dir and record of managed repositories are never read or written.
   - Tests that call the CLI set `PATH` to a temp `bin` dir that holds only `git` plus any fake stubs
     a test writes there (e.g. `FillTest.fake_claude`). The real `ai-memory`, `claude` and `codex`
     can never run from the test suite; keep it that way.

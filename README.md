@@ -24,7 +24,7 @@ irm https://raw.githubusercontent.com/edvardsanta/agent-kit/main/install.ps1 | i
 ```
 
 The installers check Python and `git`, install the most recent release
-([`v0.1.3.dev0`](https://github.com/edvardsanta/agent-kit/releases/tag/v0.1.3.dev0) today), and
+([`v0.1.4.dev0`](https://github.com/edvardsanta/agent-kit/releases/tag/v0.1.4.dev0) today), and
 use `uv tool` or `pipx` when available, else a private virtualenv under
 `~/.local/share/agent-kit` (Windows: `%LOCALAPPDATA%\agent-kit`, whose `bin` is added to the user
 `PATH`). To upgrade later, run `agent-kit upgrade` (or the same install command again). Set
@@ -39,9 +39,10 @@ agent-kit doctor
 ```
 
 If you prefer to install it yourself, any Python tool installer works with the tag URL:
-`pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.3.dev0` (or `uv tool install`).
+`pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.4.dev0` (or `uv tool install`).
 `agent-kit upgrade` installs the latest release (`--version <tag>` picks one) with the same tool
-that installed it. To remove it, run `agent-kit uninstall` (add `--purge` to also delete your
+that installed it, then runs `agent-kit sync --known` with the new version so your repositories get
+its changes (`--no-sync` skips that). To remove it, run `agent-kit uninstall` (add `--purge` to also delete your
 personal rules). Both work for the installers, `uv tool` and `pipx`; for anything else, use the
 tool you installed with.
 
@@ -95,9 +96,15 @@ Claude settings because `.git/info/exclude` cannot hide changes to tracked files
 2. `CLAUDE.md` becomes just `@AGENTS.md`.
 3. `.worktrees/` goes into `.git/info/exclude` (use `--tracked` for the versioned `.gitignore`).
 4. `.claude/settings.local.json` with empty `attribution` (turns off Claude Code's Co-Authored-By).
-5. Unless `--memory off` is selected, `ai-memory install-instructions` installs its routing block
+5. Agent skills in `.claude/skills/` (Claude Code) and `.agents/skills/` (Codex), so you can stay in
+   your agent: `agent-kit-rules` ("from now on, never force-push") has it edit
+   `.agent-kit/rules/` and re-render the block with `agent-kit init --agent none`, and
+   `agent-kit-procedures` ("save how we release as a procedure") has it write the procedure and
+   regenerate the index with `agent-kit procedures init`. They are replaced on every run;
+   `--profile upstream` hides them from Git.
+6. Unless `--memory off` is selected, `ai-memory install-instructions` installs its routing block
    and skills. The default is `compact`; `--profile upstream` defaults to `off`.
-6. An agent (`claude -p` or `codex exec`) reads the repo and answers with overview, commands,
+7. An agent (`claude -p` or `codex exec`) reads the repo and answers with overview, commands,
    conventions and pitfalls (`agent_kit/prompts/fill.md`); agent-kit writes them outside the
    managed blocks.
 
@@ -238,11 +245,18 @@ agent-kit sync ~/repos           # apply
 ```
 
 `sync` scans up to 3 levels below the given directory and only touches repos whose `AGENTS.md`
-already has the agent-kit marker. It runs the deterministic part only (steps 1-4: no ai-memory,
+already has the agent-kit marker. It runs the deterministic part only (steps 1-5: no ai-memory,
 no agent) and keeps each repo's saved languages. Repositories requiring migration are counted in
 the summary, and make `--check` exit 1 instead of reporting everything as current. Repos with an
 old marker without a saved language need one explicit initialization:
 `agent-kit init <repo> --docs-lang <pt|en> --agent none`.
+
+`init` and `sync` record every repository they set up in `~/.local/state/agent-kit/repos`
+(`$XDG_STATE_HOME`, or `$AGENT_KIT_STATE` to move it). `agent-kit sync --known` syncs exactly those,
+from any directory, skipping the ones that no longer exist; `agent-kit upgrade` runs it for you.
+Repositories set up before this record existed join it the next time you run `agent-kit sync <folder>`
+or `agent-init` on them. Repositories initialized with `--profile upstream` keep their agent files
+hidden from Git when synced.
 
 ## License
 

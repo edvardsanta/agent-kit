@@ -24,7 +24,7 @@ The supported command tree is:
 
 ```text
 agent-kit init [REPO]
-agent-kit sync [ROOT]
+agent-kit sync [ROOT | --known]
 agent-kit rules show
 agent-kit rules init
 agent-kit rules add [RULE]
@@ -47,8 +47,16 @@ enough.
 `init` initializes a single repository or updates its complete agent-kit setup. It may run the
 selected AI to generate project instructions. `REPO` defaults to the current directory.
 
+Its deterministic part includes the `agent-kit-rules` and `agent-kit-procedures` agent skills in
+`.claude/skills/` and `.agents/skills/`. They let an agent make the creative edit itself, a rule
+in every language or a procedure, and finish with a deterministic command (`init --agent none`,
+`procedures init`) that validates and renders it. agent-kit owns and replaces those files.
+
 `sync` reapplies deterministic managed state to already initialized repositories below `ROOT`. It
-never invokes an AI. `ROOT` defaults to the current directory.
+never invokes an AI. `ROOT` defaults to the current directory. `--known` syncs instead the
+repositories that `init` and `sync` recorded on this machine (`$AGENT_KIT_STATE`, else
+`$XDG_STATE_HOME` or `~/.local/state`, plus `/agent-kit/repos`). It keeps a repository's upstream
+profile: agent files stay hidden from Git when `AGENTS.md` is in the local exclude.
 
 `rules` manages the personal baseline or a tracked project overlay. `rules add` writes to the
 project overlay by default, since a strict rule rarely fits every repository, and accepts
@@ -64,7 +72,9 @@ supported.
 `upgrade` reinstalls agent-kit at the latest release, or at `--version TAG`, with the tool that
 installed it (`uv tool`, `pipx`, or the installer virtualenv's pip); it does nothing when that
 release is already installed. `AGENT_KIT_SOURCE` overrides the source, as for the installers.
-`--dry-run` prints the command. On Windows it finishes in a detached process after exit.
+Then it runs `agent-kit sync --known` with the new version, unless `--no-sync` is given; a failed
+sync is a warning, since the upgrade itself worked. `--dry-run` prints the commands. On Windows
+both finish in a detached process after exit.
 
 `uninstall` removes agent-kit itself. It recognizes installations made by `uv tool`, `pipx`, or the
 `install.sh` / `install.ps1` virtualenv and refuses anything else. It asks for confirmation, or

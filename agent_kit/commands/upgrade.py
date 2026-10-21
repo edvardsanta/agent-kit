@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -64,18 +65,31 @@ def run(args):
             return 0
         source = f"git+https://github.com/{REPO}@{tag}"
     command = plan_upgrade(prefix, source)
+    # the new version brings new managed files, so it syncs the known repositories; the command
+    # path stays the same across the reinstall
+    executable = None if args.no_sync else shutil.which("agent-kit")
+    sync = [executable, "sync", "--known"] if executable else None
     if args.dry_run:
         print(f"would run `{subprocess.list2cmdline(command)}`")
+        if sync:
+            print(f"then `{subprocess.list2cmdline(sync)}`")
         return 0
     if WINDOWS:
         # the running agent-kit.exe cannot be replaced, so a detached cmd does it after we exit
-        finish_in_background(command, [])
-        log("upgrading; it finishes in the background in a few seconds")
+        finish_in_background(command, [], then=sync)
+        log("upgrading" + (" and syncing your repositories" if sync else "")
+            + "; it finishes in the background in a few seconds")
         return 0
     result = subprocess.run(command)
     if result.returncode != 0:
         raise InitError(f"`{subprocess.list2cmdline(command)}` failed with exit code {result.returncode}")
     log(f"agent-kit was upgraded from {VERSION}; run `agent-kit --version` to check")
+    if sync:
+        if subprocess.run(sync).returncode != 0:
+            log("WARNING: the upgrade worked, but syncing your repositories failed; see above, then "
+                "run `agent-kit sync --known` again")
+    elif not args.no_sync:
+        log("agent-kit is not on PATH, so no repository was synced; run `agent-kit sync --known`")
     return 0
 
 
@@ -83,5 +97,7 @@ def register(subparsers):
     parser = subparsers.add_parser("upgrade", help="install the latest agent-kit release")
     parser.add_argument("--version", metavar="TAG",
                         help="release tag to install instead of the latest (e.g. v0.1.0)")
-    parser.add_argument("--dry-run", action="store_true", help="print the command that would run")
+    parser.add_argument("--no-sync", action="store_true",
+                        help="do not run `agent-kit sync --known` with the new version afterwards")
+    parser.add_argument("--dry-run", action="store_true", help="print the commands that would run")
     parser.set_defaults(func=run)
