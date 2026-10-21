@@ -11,7 +11,7 @@ agent-kit prepares repositories for AI coding agents without depending on one ag
 2. manages personal and project rules;
 3. manages reusable project procedures; and
 4. diagnoses the local tools needed for those operations; and
-5. removes its own installation.
+5. upgrades and removes its own installation.
 
 It is not an agent runtime, task runner, memory database, plugin system, or package manager: it
 never installs or removes other tools.
@@ -34,6 +34,7 @@ agent-kit procedures list
 agent-kit procedures show NAME
 agent-kit procedures path
 agent-kit doctor
+agent-kit upgrade
 agent-kit uninstall
 ```
 
@@ -57,6 +58,11 @@ project scope requires `--scope project` and accepts `--repo PATH`.
 supported.
 
 `doctor` performs read-only diagnostics. It never repairs or installs anything.
+
+`upgrade` reinstalls agent-kit at the latest release, or at `--version TAG`, with the tool that
+installed it (`uv tool`, `pipx`, or the installer virtualenv's pip); it does nothing when that
+release is already installed. `AGENT_KIT_SOURCE` overrides the source, as for the installers.
+`--dry-run` prints the command. On Windows it finishes in a detached process after exit.
 
 `uninstall` removes agent-kit itself. It recognizes installations made by `uv tool`, `pipx`, or the
 `install.sh` / `install.ps1` virtualenv and refuses anything else. It asks for confirmation, or

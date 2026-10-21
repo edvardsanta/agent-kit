@@ -25,9 +25,16 @@ def detect_install(prefix):
         # utf-8-sig: Windows PowerShell 5.1 writes UTF-8 with a BOM
         return "installer", Path(marker.read_text(encoding="utf-8-sig").strip())
     raise InitError(
-        f"could not tell how agent-kit was installed (Python prefix {prefix}); remove it with the "
+        f"could not tell how agent-kit was installed (Python prefix {prefix}); manage it with the "
         "tool you used, e.g. `python -m pip uninstall agent-kit`, or delete the `make install` "
         "symlinks")
+
+
+def installer_tool(method):
+    tool = shutil.which(method)
+    if not tool:
+        raise InitError(f"agent-kit was installed with {method}, but {method} is not on PATH")
+    return tool
 
 
 def plan_uninstall(prefix, purge=False, environ=None):
@@ -36,9 +43,7 @@ def plan_uninstall(prefix, purge=False, environ=None):
     method, bin_dir = detect_install(prefix)
     command, paths, path_entry = None, [], None
     if method in ("uv", "pipx"):
-        tool = shutil.which(method)
-        if not tool:
-            raise InitError(f"agent-kit was installed with {method}, but {method} is not on PATH")
+        tool = installer_tool(method)
         command = [tool, "tool", "uninstall", "agent-kit"] if method == "uv" else \
             [tool, "uninstall", "agent-kit"]
         description = f"run `{method} {' '.join(command[1:])}`"
