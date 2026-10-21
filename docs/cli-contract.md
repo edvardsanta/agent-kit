@@ -122,8 +122,10 @@ Generative commands accept:
 --trust
 ```
 
-`init` additionally accepts `--agent none` for deterministic-only initialization. `auto` selects
-Claude, then Codex. Unless `--trust` is explicit, agents receive read-only repository access and
+`init` additionally accepts `--agent none` for deterministic-only initialization. `auto` tries
+each installed agent in order, Claude then Codex, moving on when one exits with an error or returns
+an answer that fails validation; if all fail, the error lists each one. An explicit agent is never
+replaced. Unless `--trust` is explicit, agents receive read-only repository access and
 project hooks, MCP servers, and agent-specific settings are ignored where the harness supports it.
 The selected agent never writes repository files; agent-kit validates and applies its response.
 

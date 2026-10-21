@@ -40,6 +40,32 @@ def select_agent(requested, allow_none=False):
         f"no supported agent found; no files were changed. Install Claude or Codex{suffix}")
 
 
+def agent_candidates(requested, allow_none=False):
+    """Agents to try in order: the one requested, or with `auto` every installed one."""
+    if requested != "auto":
+        return [select_agent(requested, allow_none)]
+    found = [candidate for candidate in ("claude", "codex") if shutil.which(candidate)]
+    return found or [select_agent(requested, allow_none)]
+
+
+def with_fallback(agents, attempt):
+    """Return `attempt(agent)` for the first agent that succeeds, moving on after each failure.
+
+    `attempt` must not change anything before it can fail: a failed agent leaves no trace.
+    """
+    failures = []
+    for index, agent in enumerate(agents):
+        try:
+            return attempt(agent)
+        except InitError as error:
+            if index == len(agents) - 1:
+                if not failures:
+                    raise
+                raise InitError("every agent failed: " + "; ".join(failures + [f"{agent}: {error}"]))
+            failures.append(f"{agent}: {error}")
+            log(f"{agent} failed: {error}; trying {agents[index + 1]}")
+
+
 # The prompt goes through stdin, never argv: on Windows `claude`/`codex` are often npm `.cmd`
 # shims, and cmd.exe cuts a command-line argument at its first newline.
 

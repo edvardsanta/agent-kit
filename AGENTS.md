@@ -137,6 +137,9 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
   procedure. With no arguments, terminals get a multiline flow and the AI derives the title and
   filename; non-interactive callers must provide both a name and `--description`. `--dry-run` calls
   the agent but writes nothing.
+- Agent selection: commands get `agent_candidates(requested)` and run their generation through
+  `with_fallback`, so `auto` moves from Claude to Codex when one fails or its answer is rejected.
+  Generation must stay side-effect free until it returns: a failed agent must leave no trace.
 - How the agent fills `AGENTS.md`:
   - The agent never edits files. `generate_project_sections` runs it read-only before the pending
     repository changes are applied:

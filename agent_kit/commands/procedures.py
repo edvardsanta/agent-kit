@@ -6,7 +6,7 @@ import unicodedata
 from pathlib import Path
 
 from .. import KIT, InitError, log
-from ..agents import ask_repo_agent, select_agent
+from ..agents import agent_candidates, ask_repo_agent, with_fallback
 from ..changes import Changes
 from ..git import git_root
 from ..languages import LANGS, MARKER_RE, resolve_docs_language
@@ -259,9 +259,9 @@ def run(args):
         if title and ("\n" in title or "\r" in title or MARKER_RE.search(title)):
             raise InitError("procedure title must be a single plain-text line")
         description = resolve_description(args.description, lang)
-        agent = select_agent(args.agent)
-        generated_title, _, procedure = generate_procedure(
-            repo, agent, path, title, description, lang, args.trust)
+        generated_title, _, procedure = with_fallback(
+            agent_candidates(args.agent),
+            lambda agent: generate_procedure(repo, agent, path, title, description, lang, args.trust))
         if path is None:
             path = procedure_path(directory, generated_title, normalize=True)
             if path.name.lower() == "readme.md":
@@ -331,7 +331,8 @@ def register(subparsers):
     add.add_argument("--docs-lang", choices=LANGS,
                      help="procedure language (default: saved docs language, else pt)")
     add.add_argument("--agent", choices=["auto", "claude", "codex"], default="auto",
-                     help="local agent CLI to use (default: auto, Claude then Codex)")
+                     help="local agent CLI to use (default: auto, Claude then Codex if Claude is "
+                          "missing or fails)")
     add.add_argument("--trust", action="store_true",
                      help="allow the agent to load the target repo's Claude config and MCP servers")
     add.add_argument("--dry-run", action="store_true",
