@@ -100,7 +100,7 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
 - `make install`: Unix-only checkout shortcut that symlinks `bin/agent-kit` as both commands into
   `$(PREFIX)/bin` (default `~/.local`).
 - To run without writing anything: `bin/agent-kit init <repo> --dry-run` prints the diff, `--check`
-  exits 1 if anything is outdated, and `bin/agent-kit rules add "..." --dry-run` shows the rule diff.
+  exits 1 if anything is outdated, and `bin/agent-kit rules add "..." --scope global --dry-run` shows the rule diff.
 
 ## Conventions
 
@@ -120,8 +120,9 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
   `rules/<lang>.md`. `user_rules_dir()` is `$AGENT_KIT_RULES` if set, else `$XDG_CONFIG_HOME`
   (or `~/.config`) + `/agent-kit/rules`. Project overlays come from `.agent-kit/rules/<lang>.md`.
 - `rules add` checks the agent's answer in `parse_rules_answer` before writing anything: every
-  language present, placeholders kept, first heading kept. `--scope project` writes an additive
-  tracked overlay; global remains the default for backward compatibility.
+  language present, placeholders kept, first heading kept. It writes the repository's tracked
+  overlay by default (strict rules rarely fit every repo); `--scope global` edits the personal
+  baseline. With no `RULE` on a terminal it reads the user's own words, like `procedures add`.
 - `procedures path/init/add/list/show` resolve the Git root from any subdirectory. Procedure paths
   must stay inside `.agent-kit/procedures/`; initialization and creation never overwrite files.
 - `procedures add` requires Claude or Codex, runs it with read-only repository access, validates

@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parent
-VERSION = "0.1.2.dev0"
+VERSION = "0.1.3.dev0"
 
 
 class InitError(Exception):

@@ -24,7 +24,7 @@ irm https://raw.githubusercontent.com/edvardsanta/agent-kit/main/install.ps1 | i
 ```
 
 The installers check Python and `git`, install the most recent release
-([`v0.1.2.dev0`](https://github.com/edvardsanta/agent-kit/releases/tag/v0.1.2.dev0) today), and
+([`v0.1.3.dev0`](https://github.com/edvardsanta/agent-kit/releases/tag/v0.1.3.dev0) today), and
 use `uv tool` or `pipx` when available, else a private virtualenv under
 `~/.local/share/agent-kit` (Windows: `%LOCALAPPDATA%\agent-kit`, whose `bin` is added to the user
 `PATH`). To upgrade later, run `agent-kit upgrade` (or the same install command again). Set
@@ -39,7 +39,7 @@ agent-kit doctor
 ```
 
 If you prefer to install it yourself, any Python tool installer works with the tag URL:
-`pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.2.dev0` (or `uv tool install`).
+`pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.3.dev0` (or `uv tool install`).
 `agent-kit upgrade` installs the latest release (`--version <tag>` picks one) with the same tool
 that installed it. To remove it, run `agent-kit uninstall` (add `--purge` to also delete your
 personal rules). Both work for the installers, `uv tool` and `pipx`; for anything else, use the
@@ -157,7 +157,7 @@ never conflicts with them:
 ```bash
 agent-kit rules show          # show global rule files
 agent-kit rules init          # seed global personal rules (never overwrites)
-agent-kit rules add "never git push without asking"
+agent-kit rules add "never git push without asking" --scope global
 ```
 
 Both files have `{{CHAT_LANG_NAME}}`, `{{DOCS_LANG_NAME}}`, and `{{GIT_LANG_NAME}}`
@@ -168,11 +168,13 @@ Lines with `{{CHAT_LANG_NAME}}` are dropped when no chat language was chosen.
 ### Project-specific rules
 
 Project rules are tracked additive overlays in `.agent-kit/rules/{en,pt}.md`. They are appended
-to the global baseline instead of copying it, so later global updates still propagate.
+to the global baseline instead of copying it, so later global updates still propagate. `rules add`
+targets them by default: a strict rule rarely makes sense in every repository, so global rules take
+`--scope global`.
 
 ```bash
-agent-kit rules init --scope project
-agent-kit rules add "never force-push" --scope project
+agent-kit rules add                            # describe the rule in your own words
+agent-kit rules add "never force-push"         # or pass it; both write .agent-kit/rules/
 agent-kit rules show --scope project           # shows baseline plus overlay
 agent-kit init . --agent none                  # render the updated AGENTS.md block
 ```
@@ -181,7 +183,7 @@ Pass `--repo PATH` to manage another repository. The local Claude or Codex CLI g
 rules and returns every language file
 with the rule placed in the right section, translated, and merged with any rule it overlaps.
 It runs with no tools in an empty directory. agent-kit checks the answer (every language present,
-placeholders and first heading kept) before writing to your rules dir, and prints the diff.
+placeholders and first heading kept) before writing the rules files, and prints the diff.
 
 ## Project procedures
 

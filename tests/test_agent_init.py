@@ -511,7 +511,7 @@ class AddRuleTest(TempDir):
 
     def test_writes_user_rules_and_init_uses_them(self):
         self.fake_claude(self.answer())
-        r = self.run_kit("rules", "add", "never push without asking")
+        r = self.run_kit("rules", "add", "never push without asking", "--scope", "global")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("+- Never push without asking.", r.stdout)
         prompt = (self.tmp / "prompt.txt").read_text()
@@ -525,9 +525,33 @@ class AddRuleTest(TempDir):
         self.run_kit("init", repo, "--agent", "none")
         self.assertIn(self.rule, (repo / "AGENTS.md").read_text())
 
+    def test_rule_is_required_when_input_is_not_interactive(self):
+        self.fake_claude(self.answer())
+        r = self.run_kit("rules", "add", "--scope", "global")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("RULE is required when input is not interactive", r.stderr)
+        self.assertFalse((self.tmp / "prompt.txt").exists())
+
+    def test_add_without_a_rule_asks_for_it_at_the_terminal(self):
+        from argparse import Namespace
+        from agent_kit.commands import rules
+
+        args = Namespace(rule=None, agent="auto", scope="global", repo=None, dry_run=False)
+        typed = "Agents push only after I ask.\nThat includes tags."
+        with mock.patch.object(rules.sys.stdin, "isatty", return_value=True), \
+                mock.patch.object(rules, "read_multiline", return_value=typed) as read, \
+                mock.patch.object(rules, "select_agent", return_value="claude"), \
+                mock.patch.object(rules, "ask_agent", return_value=self.answer()) as ask, \
+                mock.patch("sys.stdout"):
+            self.assertEqual(rules.run_add(args), 0)
+        read.assert_called_once()
+        self.assertIn(typed, ask.call_args.args[1])
+        for lang in ai.LANGS:
+            self.assertTrue((self.rules / f"{lang}.md").read_text().endswith(self.rule + "\n"))
+
     def test_dry_run_writes_nothing(self):
         self.fake_claude(self.answer())
-        r = self.run_kit("rules", "add", "x", "--dry-run")
+        r = self.run_kit("rules", "add", "x", "--scope", "global", "--dry-run")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("+- Never push without asking.", r.stdout)
         self.assertFalse(self.rules.exists())
@@ -535,19 +559,27 @@ class AddRuleTest(TempDir):
     def test_broken_answer_writes_nothing(self):
         for answer in (self.answer(drop_placeholder=True), "=== en.md ===\n## Default rules (agent-kit)\n=== end ===\n"):
             self.fake_claude(answer)
-            r = self.run_kit("rules", "add", "x")
+            r = self.run_kit("rules", "add", "x", "--scope", "global")
             self.assertEqual(r.returncode, 2)
             self.assertIn("nothing written", r.stderr)
             self.assertFalse(self.rules.exists())
 
-    def test_adds_a_project_scoped_rule(self):
+    def test_adds_to_the_project_by_default(self):
         repo = self.git_repo()
         self.fake_claude(self.project_answer())
-        r = self.run_kit("rules", "add", "never force push", "--scope", "project",
-                         "--repo", repo)
+        r = self.run_kit("rules", "add", "never force push", "--repo", repo)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Never force push", (repo / ".agent-kit" / "rules" / "en.md").read_text())
         self.assertFalse(self.rules.exists())
+
+    def test_project_scope_outside_a_repository_points_to_global(self):
+        self.fake_claude(self.project_answer())
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        r = self.run_kit("rules", "add", "never force push", "--repo", outside)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("--scope global", r.stderr)
+        self.assertFalse((self.tmp / "prompt.txt").exists())
 
 
 class ProceduresTest(TempDir):
