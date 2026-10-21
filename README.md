@@ -27,8 +27,9 @@ The installers check Python and `git`, install the most recent release
 ([`v0.1.0.dev0`](https://github.com/edvardsanta/agent-kit/releases/tag/v0.1.0.dev0) today), and
 use `uv tool` or `pipx` when available, else a private virtualenv under
 `~/.local/share/agent-kit` (Windows: `%LOCALAPPDATA%\agent-kit`, whose `bin` is added to the user
-`PATH`). Run the same command again to upgrade. Set `AGENT_KIT_VERSION=<tag>` to pin a release,
-or `AGENT_KIT_INSTALLER=uv|pipx|venv` to choose the method.
+`PATH`). To upgrade later, run `agent-kit upgrade` (or the same install command again). Set
+`AGENT_KIT_VERSION=<tag>` to pin a release, or `AGENT_KIT_INSTALLER=uv|pipx|venv` to choose the
+method.
 
 Then check the installation:
 
@@ -39,8 +40,10 @@ agent-kit doctor
 
 If you prefer to install it yourself, any Python tool installer works with the tag URL:
 `pipx install git+https://github.com/edvardsanta/agent-kit@v0.1.0.dev0` (or `uv tool install`).
-To remove it, run `agent-kit uninstall` (add `--purge` to also delete your personal rules). It
-works for the installers, `uv tool` and `pipx`; for anything else, use the tool you installed with.
+`agent-kit upgrade` installs the latest release (`--version <tag>` picks one) with the same tool
+that installed it. To remove it, run `agent-kit uninstall` (add `--purge` to also delete your
+personal rules). Both work for the installers, `uv tool` and `pipx`; for anything else, use the
+tool you installed with.
 
 `agent-init` is an alias for `agent-kit init`; use `agent-kit` for the other subcommands. The
 installed package includes its bundled rules and prompts, so it does not depend on a source

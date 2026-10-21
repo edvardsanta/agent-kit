@@ -62,6 +62,8 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           agent-kit --version
           agent-init --help > /dev/null
+          agent-kit upgrade
+          agent-kit --version
           agent-kit uninstall --yes
           hash -r
           if command -v agent-kit; then exit 1; fi
@@ -75,6 +77,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           agent-init --help | Out-Null
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          agent-kit upgrade
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Start-Sleep -Seconds 30  # the reinstall finishes in a detached process
+          agent-kit --version
+          if ($LASTEXITCODE -ne 0) { throw 'agent-kit is broken after upgrade' }
       # Windows PowerShell 5.1 is what many machines run; this also covers reinstalling
       - if: runner.os == 'Windows'
         shell: powershell

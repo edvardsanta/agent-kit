@@ -54,7 +54,7 @@ the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and
 
 `agent-kit` is a personal CLI that standardizes `AGENTS.md` / `CLAUDE.md` across repositories.
 Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules`, `procedures`,
-`doctor` and `uninstall`.
+`doctor`, `upgrade` and `uninstall`.
 `init` has two parts:
 - A deterministic part: the managed rules block, the `CLAUDE.md` import stub, the `.worktrees/`
   ignore entry, turning off Claude Code attribution, and optional ai-memory routing.
@@ -82,10 +82,11 @@ Its main subcommands are `init` (also installed as `agent-init`), `sync`, `rules
 - `pyproject.toml`: setuptools package metadata, package-data declarations, and the `agent-kit` /
   `agent-init` cross-platform console entry points. It reads the version from `agent_kit/__init__.py`.
 - `.github/workflows/ci.yml`: unit-test matrix on Linux/macOS, installed-wheel smoke matrix on
-  Linux, macOS and Windows, and an install/uninstall round trip of `install.sh` / `install.ps1`.
+  Linux, macOS and Windows, and an install/upgrade/uninstall round trip of `install.sh` /
+  `install.ps1`.
 - `install.sh`, `install.ps1`: one-line installers (uv, pipx, else a private venv that carries an
-  `agent-kit-install` marker). `agent-kit uninstall` relies on that marker or on the uv/pipx
-  receipts in `sys.prefix` to know what to remove.
+  `agent-kit-install` marker). `agent-kit upgrade` and `uninstall` rely on that marker or on the
+  uv/pipx receipts in `sys.prefix` to know how agent-kit was installed.
 - `tests/test_agent_init.py`: unittest suite; loads `bin/agent-kit` through `SourceFileLoader`.
 
 ## Environment and commands

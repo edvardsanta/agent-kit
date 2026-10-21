@@ -894,5 +894,45 @@ class EncodingTest(unittest.TestCase):
         self.assertEqual(missing, [])
 
 
+class UpgradeTest(TempDir):
+    def setUp(self):
+        super().setUp()
+        from agent_kit.commands import upgrade
+        self.upgrade = upgrade
+
+    def test_reinstalls_with_the_tool_that_installed_it(self):
+        source = "git+https://github.com/edvardsanta/agent-kit@v9"
+        for method, receipt, expected in (
+                ("uv", "uv-receipt.toml", ["/bin/uv", "tool", "install", "--force", "--reinstall", source]),
+                ("pipx", "pipx_metadata.json", ["/bin/pipx", "install", "--force", source])):
+            prefix = self.tmp / method
+            prefix.mkdir()
+            (prefix / receipt).write_text("")
+            with mock.patch("shutil.which", return_value=f"/bin/{method}"):
+                self.assertEqual(self.upgrade.plan_upgrade(prefix, source), expected)
+
+    def test_installer_venv_upgrades_with_its_own_pip(self):
+        prefix = self.tmp / "venv"
+        prefix.mkdir()
+        (prefix / "agent-kit-install").write_text(f"{self.tmp / 'bin'}\n")
+        command = self.upgrade.plan_upgrade(prefix, "src")
+        self.assertEqual(command[:4], [sys.executable, "-m", "pip", "install"])
+        self.assertIn("--force-reinstall", command)
+        self.assertEqual(command[-1], "src")
+
+    def test_already_latest_runs_nothing(self):
+        args = mock.Mock(version=f"v{ai.VERSION}", dry_run=False)
+        with mock.patch.dict(os.environ), mock.patch.object(self.upgrade, "plan_upgrade") as plan:
+            os.environ.pop("AGENT_KIT_SOURCE", None)
+            self.assertEqual(self.upgrade.run(args), 0)
+        plan.assert_not_called()
+
+    def test_unknown_installation_changes_nothing(self):
+        # --dry-run and an explicit source: no network, and the suite never upgrades a real install
+        r = self.run_kit("upgrade", "--dry-run", env={"AGENT_KIT_SOURCE": "src"})
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("could not tell how agent-kit was installed", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
