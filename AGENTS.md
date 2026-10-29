@@ -48,6 +48,10 @@ the markers; change the rule in your agent-kit rules (see `agent-kit rules`) and
 - Use ai-memory for cross-session continuity (routing block below).
 - Do not keep durable project facts in the harness's local memory; record them in
   ai-memory or in this file.
+
+## Project rules
+
+- Keep code simple and easy for humans to read. Use clear names and straightforward control flow; avoid unnecessary abstractions and clever shortcuts.
 <!-- agent-kit:end -->
 
 ## Overview
