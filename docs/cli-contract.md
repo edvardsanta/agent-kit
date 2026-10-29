@@ -1,7 +1,7 @@
 # CLI contract
 
-Status: accepted contract for the first public pre-release. Runtime behavior remains pre-release
-until every item in the delivery sequence is complete.
+Status: accepted contract for 0.1.0. Complete the remaining delivery checklist before publishing
+the stable release.
 
 ## Product boundary
 
@@ -190,8 +190,7 @@ review without claiming that model output is safe.
 
 ## First-release removals
 
-There are no released tags, so the first public contract should not preserve accidental interfaces.
-Remove these before the first release:
+The following development interfaces were removed before the stable release:
 
 | Remove | Canonical replacement |
 | --- | --- |
@@ -202,8 +201,7 @@ Remove these before the first release:
 | `agent-kit init --hide-agent-files` | `--profile upstream` |
 | positional repositories under `procedures` | `--repo PATH` |
 
-Keep `agent-init` only through the first pre-release as a documented shortcut for `agent-kit init`.
-Its removal or stabilization must be decided before declaring the CLI stable.
+`agent-init` remains a supported shortcut for `agent-kit init` in 0.1.
 
 ## Memory integration
 
