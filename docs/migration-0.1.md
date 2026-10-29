@@ -1,7 +1,7 @@
 # Migrating to the 0.1 CLI
 
-`0.1.0.dev0` is the development version leading to the first tagged release. There are no earlier
-tagged releases, so these notes cover commands and options that existed during development.
+`0.1.0` is the first stable release, following the `0.1.x.dev0` development releases.
+These notes cover commands and options that changed during development.
 
 | Development command or option | 0.1 replacement |
 | --- | --- |
@@ -18,8 +18,8 @@ Languages are no longer defaulted to `pt`: `init` detects the documentation and 
 from the repository and fails when it cannot. The chat language is only written when
 `--chat-lang` is given; a legacy `lang=` marker now fixes the documentation language only.
 
-The `agent-init` command remains an alias for `agent-kit init` during the first pre-release. New
-scripts should use `agent-kit init` directly.
+The `agent-init` command remains a supported alias for `agent-kit init` in 0.1.
+New scripts should use `agent-kit init` directly.
 
 For cross-platform installations, use `pipx install .` or `python -m pip install .`. `make install`
 is only a convenience for Unix-like development checkouts.
